@@ -169,6 +169,8 @@ Need something extra? I can extend or customize this for your company's needs, f
 
 If this work makes sense to you, give the repo a ⭐ star or support me on Ko-fi ☕
 
+I'm adding more tools and templates over time, so feel free to [follow me on GitHub](https://github.com/DuprTECH) to see what's new.
+
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/duprtech)
 
 ## License
