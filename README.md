@@ -167,7 +167,7 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 
 Need something extra? I can extend or customize this for your company's needs, for example the Windows install script, a patch management dashboard, maintenance windows, approval workflows, reporting or integration with WSUS, SCCM, Intune or AWX. Feel free to get in touch: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
 
-If this saved you time and you're happy with my work, you can buy me a coffee ☕
+If this work makes sense to you, give the repo a ⭐ star or support me on Ko-fi ☕
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/duprtech)
 
