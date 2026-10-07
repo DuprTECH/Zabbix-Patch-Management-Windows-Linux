@@ -2,6 +2,10 @@
 
 One Zabbix 7.4 template to see the **update status of all your Windows and Linux servers in one place**, with the **same keys on every OS**: how many updates are pending (security, critical, by severity, kernel, …), which ones, what was installed recently, whether a reboot is needed, when the host was last patched and with what result.
 
+![Host dashboard included in the template (sample data)](images/host_dashboard_1.png)
+
+*Host dashboard **Patch management**, included in the template (sample data). More screenshots, including the global dashboard of all hosts, are in [Dashboards](#dashboards).*
+
 ## ✨ Highlights
 
 - 🪟🐧 **One template for Windows and Linux**: Windows Update, apt (Debian, Ubuntu), dnf / yum (RHEL, Rocky, Alma, Oracle, Fedora). The same keys (`patch.*`), so dashboards, triggers and reports work the same for every OS.
@@ -75,7 +79,31 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 
 All times are sent as unix timestamps, so no time zone macros are needed. The patch day is stored in the host inventory field *Type (Full details)* and used in the trigger tag `UpdatePlan`, so you can filter problems by patch window.
 
-## Host dashboard
+## Dashboards
+
+> 🕵️ The screenshots below show **sample data** (anonymized host names like *SRV-SQL-01* or *lnx-web-02.example.local*). In your Zabbix you see your own hosts; click a host to open its details and history.
+
+### Host dashboard – part of the template ✅
+
+The **host dashboard is included in the template** and is imported with it. Zabbix shows it for every host with the template (*Monitoring → Hosts → Dashboards → Patch management*), with the same widgets on Windows and Linux.
+
+| Overview | Categories and severity | Installs and history |
+|:---:|:---:|:---:|
+| [![Host dashboard – overview](images/host_dashboard_1.png)](images/host_dashboard_1.png) | [![Host dashboard – categories and severity](images/host_dashboard_2.png)](images/host_dashboard_2.png) | [![Host dashboard – installs and history](images/host_dashboard_3.png)](images/host_dashboard_3.png) |
+
+### Global dashboard – on request 📨
+
+The **global dashboard of all hosts is not part of this repository** and is not imported with the template (Zabbix can't export a global dashboard together with a template). It is created with a script through the Zabbix API, including a summary host with aggregate items for the KPI tiles and the 1 year trends. **I can send it to you on request**: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
+
+| Overview | All hosts | Reboot and installs |
+|:---:|:---:|:---:|
+| [![Global dashboard – overview](images/global_dashboard_1.png)](images/global_dashboard_1.png) | [![Global dashboard – all hosts](images/global_dashboard_2.png)](images/global_dashboard_2.png) | [![Global dashboard – reboot and installs](images/global_dashboard_3.png)](images/global_dashboard_3.png) |
+
+- **Overview**: hosts, compliance, hosts with pending / security / critical updates, reboot required, failed installs, no data, pending updates totals, hosts not updated for 45+ days, automatic updates off, update source down, average uptime and time since update; hosts by OS, update compliance, honeycomb of hosts by pending security updates; 1 year trends; patch management problems
+- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, patch day, automatic updates, update source, last check, check and install result
+- **Reboot and installs**: longest uptime with the reboot reason, longest without installed updates, results of the last install runs
+
+### Host dashboard pages
 
 The template contains the dashboard **Patch management**, shown for every host with the template (*Monitoring → Hosts → Dashboards*):
 
@@ -85,7 +113,6 @@ The template contains the dashboard **Patch management**, shown for every host w
 | **Categories and severity** | Pie charts of pending updates by category and by severity, stacked graphs of both (90 days) |
 | **Installs and history** | Last install run, status, installed / failed count, last update installed, last reboot; installed / failed updates per run and time since update / reboot (1 year); history of install runs, installed updates, OS version / kernel and check results |
 
-🧩 **A global dashboard of all hosts** (a table of all servers, compliance, OS distribution, servers with / without updates over a year, …) can't be exported together with a template, so it isn't in this repository. If you'd like one, I can help you build it to fit your needs. Get in touch: 📧 [info@duprtech.sk](mailto:info@duprtech.sk). An example of such a dashboard (built with the legacy Windows template) is in [`old/`](old/README.md).
 
 ## Requirements
 

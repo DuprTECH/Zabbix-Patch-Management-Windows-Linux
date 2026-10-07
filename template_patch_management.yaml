@@ -729,7 +729,7 @@ zabbix_export:
             - tag: component
               value: install
       dashboards:
-        - uuid: fdd050f8a7dc4f9586d002ad7f8a0d56
+        - uuid: 3dd2f83797284a90834f5d19bde5f886
           name: 'Patch management'
           display_period: '60'
           auto_start: 'NO'
@@ -748,13 +748,7 @@ zabbix_export:
                         key: patch.updates.all
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
-                    - type: INTEGER
-                      name: show.2
-                      value: '3'
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
@@ -783,13 +777,7 @@ zabbix_export:
                         key: patch.updates.security
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
-                    - type: INTEGER
-                      name: show.2
-                      value: '3'
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
@@ -818,13 +806,7 @@ zabbix_export:
                         key: patch.updates.critical
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
-                    - type: INTEGER
-                      name: show.2
-                      value: '3'
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
@@ -853,28 +835,16 @@ zabbix_export:
                         key: patch.updates.kernel
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
-                    - type: INTEGER
-                      name: show.2
-                      value: '3'
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
                     - type: STRING
                       name: thresholds.0.color
-                      value: ''
+                      value: 'F9A825'
                     - type: STRING
                       name: thresholds.0.threshold
                       value: '1'
-                    - type: STRING
-                      name: thresholds.1.color
-                      value: '9'
-                    - type: STRING
-                      name: thresholds.1.threshold
-                      value: 'F'
                 - type: item
                   name: 'Held / hidden'
                   x: '36'
@@ -888,13 +858,7 @@ zabbix_export:
                         key: patch.updates.held
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
-                    - type: INTEGER
-                      name: show.2
-                      value: '3'
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
@@ -911,16 +875,13 @@ zabbix_export:
                         key: patch.reboot.required
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                     - type: STRING
                       name: thresholds.0.color
                       value: '388E3C'
@@ -946,16 +907,13 @@ zabbix_export:
                         key: patch.lastupdate.age
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                     - type: STRING
                       name: thresholds.0.color
                       value: 'F57C00'
@@ -981,28 +939,19 @@ zabbix_export:
                         key: patch.lastboot.age
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                     - type: STRING
                       name: thresholds.0.color
-                      value: '7'
+                      value: 'F57C00'
                     - type: STRING
                       name: thresholds.0.threshold
-                      value: '7'
-                    - type: STRING
-                      name: thresholds.1.color
-                      value: '5'
-                    - type: STRING
-                      name: thresholds.1.threshold
-                      value: 'F'
+                      value: '7776000'
                 - type: item
                   name: 'OS'
                   'y': '3'
@@ -1016,16 +965,13 @@ zabbix_export:
                         key: patch.os.name
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: item
                   name: 'OS version / kernel'
                   x: '12'
@@ -1040,16 +986,13 @@ zabbix_export:
                         key: patch.os.version
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: item
                   name: 'Patch day'
                   x: '24'
@@ -1064,16 +1007,13 @@ zabbix_export:
                         key: patch.lastupdate.patchday
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: item
                   name: 'Automatic updates'
                   x: '36'
@@ -1088,16 +1028,13 @@ zabbix_export:
                         key: patch.autoupdate
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: item
                   name: 'Last check'
                   x: '48'
@@ -1112,28 +1049,19 @@ zabbix_export:
                         key: patch.check.age
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                     - type: STRING
                       name: thresholds.0.color
-                      value: '7'
+                      value: 'C62828'
                     - type: STRING
                       name: thresholds.0.threshold
-                      value: '1'
-                    - type: STRING
-                      name: thresholds.1.color
-                      value: '6'
-                    - type: STRING
-                      name: thresholds.1.threshold
-                      value: 'C'
+                      value: '172800'
                 - type: item
                   name: 'Check result'
                   x: '60'
@@ -1148,16 +1076,13 @@ zabbix_export:
                         key: patch.check.result
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: itemhistory
                   name: 'Pending updates'
                   'y': '6'
@@ -1170,6 +1095,9 @@ zabbix_export:
                     - type: INTEGER
                       name: show_lines
                       value: '1'
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
                     - type: STRING
                       name: columns.0.name
                       value: 'Pending updates'
@@ -1197,6 +1125,9 @@ zabbix_export:
                     - type: INTEGER
                       name: show_lines
                       value: '1'
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
                     - type: STRING
                       name: columns.0.name
                       value: 'Update history'
@@ -1435,14 +1366,6 @@ zabbix_export:
                     - type: STRING
                       name: ds.0.color.8
                       value: 'FDD835'
-                    - type: ITEM
-                      name: ds.0.itemids.9
-                      value:
-                        host: 'APP Patch management all OS'
-                        key: patch.updates.kernel
-                    - type: STRING
-                      name: ds.0.color.9
-                      value: 'F06292'
                     - type: INTEGER
                       name: draw_type
                       value: '1'
@@ -1622,14 +1545,6 @@ zabbix_export:
                     - type: STRING
                       name: ds.0.color.8
                       value: 'FDD835'
-                    - type: ITEM
-                      name: ds.0.itemids.9
-                      value:
-                        host: 'APP Patch management all OS'
-                        key: patch.updates.kernel
-                    - type: STRING
-                      name: ds.0.color.9
-                      value: 'F06292'
                     - type: INTEGER
                       name: ds.0.stacked
                       value: '1'
@@ -1718,16 +1633,13 @@ zabbix_export:
                         key: patch.install.timestamp
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: item
                   name: 'Install status'
                   x: '12'
@@ -1741,16 +1653,13 @@ zabbix_export:
                         key: patch.install.status
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                     - type: STRING
                       name: thresholds.0.color
                       value: '388E3C'
@@ -1776,13 +1685,7 @@ zabbix_export:
                         key: patch.install.count
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
-                    - type: INTEGER
-                      name: show.2
-                      value: '3'
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
@@ -1799,13 +1702,7 @@ zabbix_export:
                         key: patch.install.failed
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
-                    - type: INTEGER
-                      name: show.2
-                      value: '3'
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
@@ -1834,16 +1731,13 @@ zabbix_export:
                         key: patch.lastupdate.timestamp
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: item
                   name: 'Last reboot'
                   x: '60'
@@ -1857,16 +1751,13 @@ zabbix_export:
                         key: patch.lastboot
                     - type: INTEGER
                       name: show.0
-                      value: '1'
-                    - type: INTEGER
-                      name: show.1
                       value: '2'
                     - type: INTEGER
-                      name: show.2
-                      value: '3'
+                      name: decimal_places
+                      value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '30'
                 - type: svggraph
                   name: 'Installed / failed updates per run (1 year)'
                   'y': '3'
@@ -1963,6 +1854,9 @@ zabbix_export:
                     - type: INTEGER
                       name: show_lines
                       value: '20'
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
                     - type: STRING
                       name: columns.0.name
                       value: 'Result'
@@ -1990,6 +1884,9 @@ zabbix_export:
                     - type: INTEGER
                       name: show_lines
                       value: '10'
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
                     - type: STRING
                       name: columns.0.name
                       value: 'Installed updates'
@@ -2016,6 +1913,9 @@ zabbix_export:
                     - type: INTEGER
                       name: show_lines
                       value: '20'
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
                     - type: STRING
                       name: columns.0.name
                       value: 'OS version / kernel'
@@ -2043,6 +1943,9 @@ zabbix_export:
                     - type: INTEGER
                       name: show_lines
                       value: '20'
+                    - type: INTEGER
+                      name: show_column_header
+                      value: '0'
                     - type: STRING
                       name: columns.0.name
                       value: 'Result'
