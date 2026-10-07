@@ -729,7 +729,7 @@ zabbix_export:
             - tag: component
               value: install
       dashboards:
-        - uuid: 3dd2f83797284a90834f5d19bde5f886
+        - uuid: 7a37c900356c4793bc72187bb53a1151
           name: 'Patch management'
           display_period: '60'
           auto_start: 'NO'
@@ -881,7 +881,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                     - type: STRING
                       name: thresholds.0.color
                       value: '388E3C'
@@ -913,7 +913,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                     - type: STRING
                       name: thresholds.0.color
                       value: 'F57C00'
@@ -945,7 +945,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                     - type: STRING
                       name: thresholds.0.color
                       value: 'F57C00'
@@ -971,7 +971,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: item
                   name: 'OS version / kernel'
                   x: '12'
@@ -992,7 +992,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: item
                   name: 'Patch day'
                   x: '24'
@@ -1013,7 +1013,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: item
                   name: 'Automatic updates'
                   x: '36'
@@ -1034,7 +1034,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: item
                   name: 'Last check'
                   x: '48'
@@ -1055,7 +1055,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                     - type: STRING
                       name: thresholds.0.color
                       value: 'C62828'
@@ -1082,7 +1082,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: itemhistory
                   name: 'Pending updates'
                   'y': '6'
@@ -1639,7 +1639,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: item
                   name: 'Install status'
                   x: '12'
@@ -1659,7 +1659,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                     - type: STRING
                       name: thresholds.0.color
                       value: '388E3C'
@@ -1737,7 +1737,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: item
                   name: 'Last reboot'
                   x: '60'
@@ -1757,7 +1757,7 @@ zabbix_export:
                       value: '0'
                     - type: INTEGER
                       name: value_size
-                      value: '30'
+                      value: '20'
                 - type: svggraph
                   name: 'Installed / failed updates per run (1 year)'
                   'y': '3'
