@@ -19,7 +19,8 @@
 #   ZABBIX_CONF     agent config with Hostname / ServerActive
 #                   (default: /etc/zabbix/zabbix_agent2.conf or zabbix_agentd.conf)
 #   ZABBIX_SERVER   optional Zabbix server / proxy (instead of ServerActive)
-#   ZABBIX_HOST     optional host name in Zabbix   (instead of Hostname)
+#   ZABBIX_HOST     optional host name in Zabbix   (instead of Hostname; default uname -n
+#                   when the config has no Hostname, for example HostnameItem=system.hostname)
 #   HISTORY_LINES   number of lines in the update history item (default: 50)
 #
 # Author : Dusan Priechodsky
@@ -34,6 +35,19 @@ if [ -z "$ZABBIX_CONF" ]; then
     for c in /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agentd.conf; do
         [ -f "$c" ] && ZABBIX_CONF="$c" && break
     done
+fi
+
+# Host name: zabbix_sender takes Hostname from the agent config, but it can't resolve
+# HostnameItem (for example HostnameItem=system.hostname). Without Hostname in the config
+# (or its Include files) send the name of system.hostname, that is uname -n.
+if [ -z "$ZABBIX_HOST" ] && [ -n "$ZABBIX_CONF" ]; then
+    CONF_FILES="$ZABBIX_CONF"
+    for inc in $(sed -n 's/^Include=//p' "$ZABBIX_CONF"); do
+        [ -d "$inc" ] && inc="$inc/*"
+        CONF_FILES="$CONF_FILES $inc"
+    done
+    # shellcheck disable=SC2086
+    grep -hqs '^Hostname=' $CONF_FILES || ZABBIX_HOST=$(uname -n)
 fi
 
 send() {

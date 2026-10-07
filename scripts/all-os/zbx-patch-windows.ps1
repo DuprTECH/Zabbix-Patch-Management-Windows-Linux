@@ -31,7 +31,8 @@
     Optional: Zabbix server / proxy address (instead of ServerActive from the config).
 
 .PARAMETER HostName
-    Optional: host name in Zabbix (instead of Hostname from the config).
+    Optional: host name in Zabbix (instead of Hostname from the config). When the config has no
+    Hostname (for example HostnameItem=system.hostname), the computer name is used.
 
 .PARAMETER HistoryLines
     Number of lines in the update history item (default 50).
@@ -81,6 +82,19 @@ function Send-ToZabbix {
     if ($ZabbixServer) { $base += @("-z", $ZabbixServer) }
     if ($HostName)     { $base += @("-s", $HostName) }
     & $SenderPath @base @SenderArgs
+}
+
+# Host name: zabbix_sender takes Hostname from the agent config, but it can't resolve
+# HostnameItem (for example HostnameItem=system.hostname). Without Hostname in the config
+# (or its Include files) send the name of system.hostname, that is the computer name.
+if (-not $HostName -and $ConfigPath -and (Test-Path $ConfigPath)) {
+    $confFiles = @($ConfigPath)
+    foreach ($m in (Select-String -Path $ConfigPath -Pattern '^Include=(.+)$')) {
+        $inc = $m.Matches[0].Groups[1].Value.Trim()
+        if (Test-Path $inc -PathType Container) { $inc = Join-Path $inc '*' }
+        $confFiles += @(Get-ChildItem $inc -File -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    }
+    if (-not (Select-String -Path $confFiles -Pattern '^Hostname=' -Quiet)) { $HostName = $env:COMPUTERNAME }
 }
 
 function ConvertTo-Epoch([datetime]$Date) {
