@@ -729,7 +729,7 @@ zabbix_export:
             - tag: component
               value: install
       dashboards:
-        - uuid: 7a37c900356c4793bc72187bb53a1151
+        - uuid: 9a18e36191fa474480805734737206a8
           name: 'Patch management'
           display_period: '60'
           auto_start: 'NO'
@@ -1199,6 +1199,9 @@ zabbix_export:
                       name: ds.0.missingdatafunc
                       value: '3'
                     - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
                       name: legend_lines
                       value: '2'
                 - type: svggraph
@@ -1238,6 +1241,9 @@ zabbix_export:
                       name: ds.0.missingdatafunc
                       value: '3'
                     - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
                       name: ds.1.dataset_type
                       value: '0'
                     - type: ITEM
@@ -1254,6 +1260,9 @@ zabbix_export:
                     - type: INTEGER
                       name: ds.1.missingdatafunc
                       value: '3'
+                    - type: INTEGER
+                      name: ds.1.approximation
+                      value: '4'
                     - type: INTEGER
                       name: righty
                       value: '1'
@@ -1555,6 +1564,9 @@ zabbix_export:
                       name: ds.0.missingdatafunc
                       value: '3'
                     - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
                       name: legend_lines
                       value: '2'
                 - type: svggraph
@@ -1616,6 +1628,9 @@ zabbix_export:
                     - type: INTEGER
                       name: ds.0.missingdatafunc
                       value: '3'
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
                     - type: INTEGER
                       name: legend_lines
                       value: '2'
@@ -1799,6 +1814,9 @@ zabbix_export:
                       name: ds.0.missingdatafunc
                       value: '3'
                     - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
+                    - type: INTEGER
                       name: legend_lines
                       value: '2'
                 - type: svggraph
@@ -1839,6 +1857,9 @@ zabbix_export:
                     - type: INTEGER
                       name: ds.0.missingdatafunc
                       value: '3'
+                    - type: INTEGER
+                      name: ds.0.approximation
+                      value: '4'
                     - type: INTEGER
                       name: legend_lines
                       value: '2'
