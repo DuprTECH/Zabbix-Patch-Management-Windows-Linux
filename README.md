@@ -16,7 +16,8 @@ One Zabbix 7.4 template to see the **update status of all your Windows and Linux
 - 🖥️ **OS name and version / kernel**, update source and its availability, automatic updates, Windows Update service
 - 📊 **Host dashboard** included in the template: tiles, pending updates list, update history, graphs by category and severity, install runs
 - 🚨 **Triggers**: critical / security updates pending, reboot required / pending too long, update source unavailable, check failed, install run failed, **no data from a host**
-- 🧰 **Works your way**: the check runs from cron / Task Scheduler (or the Zabbix agent) with zabbix_sender. Updates are installed by **Ansible** (playbook included) or any other tool.
+- 🧰 **Works your way**: the check runs from cron / Task Scheduler (or the Zabbix agent) with zabbix_sender. Updates are installed by **Ansible** (playbook included) or any other tool – or use **only the reporting** with the one-command install scripts.
+- 🤝 **Support and complete deployment** available – see [Support](#support-deployment--custom-work).
 
 ## How it works
 
@@ -38,6 +39,8 @@ flowchart LR
 1. **Check** (`patch.*` items): the check script runs on the host every few hours and sends everything with zabbix_sender.
 2. **Install** (`patch.install.*` items): the Ansible playbook from this repository, or your own update job, installs the updates and sends the result.
 
+The check and the install are independent: you can use **only the check (reporting)**, see [Check only](#check-only-reporting).
+
 ## Contents
 
 | File | Description |
@@ -45,6 +48,9 @@ flowchart LR
 | `template_patch_management.yaml` | Zabbix **7.4** export with the template `APP Patch management all OS` (items, triggers, host dashboard) |
 | `scripts/zbx-patch-windows.ps1` | Windows check script (PowerShell, Windows Update Agent API) |
 | `scripts/zbx-patch-linux.sh` | Linux check script (bash, apt / dnf / yum) |
+| `scripts/install-check-windows.ps1` | Check only: installs the Windows check script, schedules it (Task Scheduler) and runs it |
+| `scripts/install-check-linux.sh` | Check only: installs the Linux check script, schedules it (cron) and runs it |
+| `ansible/check-windows.yml`, `ansible/check-linux.yml` | Check only with Ansible: the same for many hosts at once |
 | `ansible/patch-and-report.yml` | Ansible playbook: install updates on Windows and Linux, report to Zabbix |
 | `ansible/inventory.example.ini` | Example inventory |
 | [`old/`](old/README.md) | The original Windows only template `APP Winupdates check` (legacy) |
@@ -93,7 +99,7 @@ The **host dashboard is included in the template** and is imported with it. Zabb
 
 ### Global dashboard – on request 📨
 
-The **global dashboard of all hosts is not part of this repository** and is not imported with the template (Zabbix can't export a global dashboard together with a template). It is created with a script through the Zabbix API, including a summary host with aggregate items for the KPI tiles and the 1 year trends. **I can send it to you on request**: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
+The **global dashboard of all hosts is not part of this repository** and is not imported with the template (Zabbix can't export a global dashboard together with a template). **I can send it to you on request**, or help you fit it to your environment: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
 
 | Overview | All hosts | Reboot and installs |
 |:---:|:---:|:---:|
@@ -151,6 +157,36 @@ Parameters: `-SenderPath`, `-ConfigPath` (agent config with `Hostname` and `Serv
 
 Environment variables: `ZABBIX_SENDER`, `ZABBIX_CONF`, `ZABBIX_SERVER`, `ZABBIX_HOST`, `HISTORY_LINES` (default 50).
 
+### Check only (reporting)
+
+The check scripts **only read the update status and send it to Zabbix – they don't install or change anything** (on Linux they refresh the package lists, like the system does itself). So you can use them on their own:
+
+- if you **only want the reporting**, because updates are installed by another tool (WSUS, SCCM, Intune, AWX, unattended-upgrades, dnf-automatic, …) or by hand,
+- to **run the check more often** than your install job (for example every 4 hours, while patching runs once a month).
+
+The install scripts below do the whole setup on one host: install the check script, schedule it every N hours (default 12, shifted by a fixed per-host offset of ±30 min, so the hosts don't run at the same time) and run the check right away. Running them again updates the script and the schedule.
+
+**Windows** (as administrator, in the folder with both scripts, or alone – it downloads the check script from GitHub):
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -IntervalHours 4
+```
+Parameters: `-IntervalHours` (1, 2, 3, 4, 6, 8, 12, 24), `-AgentDir`, `-ZabbixServer`, `-HostName`, `-NoRun`. Creates the scheduled task *Zabbix patch check* (SYSTEM).
+
+**Linux** (as root; installs `zabbix-sender` when missing, if the Zabbix repository is configured):
+```bash
+sudo ./install-check-linux.sh
+sudo INTERVAL_HOURS=4 ./install-check-linux.sh
+curl -fsSL https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/install-check-linux.sh | sudo bash
+```
+Environment variables: `INTERVAL_HOURS`, `RUN_NOW=0`, `INSTALL_SENDER=0`, `ZABBIX_SERVER`, `ZABBIX_HOST`. Creates `/etc/cron.d/zbx-patch-linux`.
+
+**Many hosts with Ansible**: `ansible/check-windows.yml` and `ansible/check-linux.yml` do the same (the check script is downloaded on the controller, so the hosts don't need internet access):
+```bash
+ansible-playbook -i inventory.ini ansible/check-linux.yml
+ansible-playbook -i inventory.ini ansible/check-windows.yml -e zabbix_check_interval_hours=4
+```
+
 ### Zabbix agent instead of cron / Task Scheduler (optional)
 The item *Patch - Run update check* (disabled) starts the script through the agent with the command in `{$PATCH.CHECK.CMD}` (needs `AllowKey=system.run[*]`). The default is the Linux script; on Windows hosts set the host macro to `start /low powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1"`. Running the Linux script as the zabbix user can't refresh the package lists, so cron as root is recommended.
 
@@ -181,9 +217,11 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 - The Windows update categories are detected by their classification ID, so it works on Windows in any language.
 - The patch day is the day of the **last package change** on the host, so manual installs or daily unattended-upgrades move it too.
 
-## Custom work & support
+## Support, deployment & custom work
 
-Need something extra? I can extend or customize this for your company's needs, for example a global patch management dashboard, maintenance windows, approval workflows, reporting or integration with WSUS, SCCM, Intune or AWX. Feel free to get in touch: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
+🤝 **I provide support for this solution, including a complete deployment** in your environment: Zabbix template and dashboards, check scripts on Windows and Linux hosts, scheduling, Ansible patching with reporting, and the global dashboard of all hosts.
+
+Need something extra? I can extend or customize it for your company's needs, for example maintenance windows, approval workflows, reporting or integration with WSUS, SCCM, Intune or AWX. Feel free to get in touch: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
 
 If this work makes sense to you, give the repo a ⭐ star or support me on Ko-fi ☕
 

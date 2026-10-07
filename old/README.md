@@ -60,3 +60,7 @@ The Ansible playbook [`ansible/patch-and-report.yml`](../ansible/patch-and-repor
 ## Migration to `APP Patch management all OS`
 
 Both templates use different keys and a different inventory field, so they can be linked to the same host at the same time. Install the new check script, link the new template, run the Ansible playbook with `-e zabbix_keys=both`, and unlink `APP Winupdates check` when the new data look good.
+
+## Support & deployment
+
+🤝 I provide support for this solution, including a complete deployment (template, dashboards, check scripts, Ansible patching with reporting) and the migration to the new template. Get in touch: 📧 [info@duprtech.sk](mailto:info@duprtech.sk)
