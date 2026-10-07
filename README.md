@@ -57,6 +57,9 @@ flowchart LR
 | `template_patch_management.yaml` | Zabbix **7.4** export with 2 templates: `APP Winupdates check` and `APP Linux updates check` |
 | `scripts/windows/zbx-windows-updates.ps1` | Windows check script (PowerShell, Windows Update Agent API) |
 | `scripts/linux/zbx-linux-updates.sh` | Linux check script (bash, apt / dnf / yum) |
+| `template_patch_management_all_os.yaml` | Zabbix **7.4** export with the OS independent template `APP Patch management all OS` |
+| `scripts/all-os/zbx-patch-windows.ps1` | Windows check script for the all OS template |
+| `scripts/all-os/zbx-patch-linux.sh` | Linux check script for the all OS template |
 | `ansible/patch-and-report.yml` | Ansible playbook: install updates on Windows and Linux, report to Zabbix |
 | `ansible/inventory.example.ini` | Example inventory |
 
@@ -91,6 +94,38 @@ Triggers: critical updates (High), security updates (Warning), reboot required (
 | LU install - Installed packages / count / result | `linux.updates.install.list`, `.install.count`, `.install.result` | install job, Ansible |
 
 Triggers: security updates (Warning), reboot required (Info), repository unavailable (Warning), no data for `{$LINUX.UPDATES.NODATA}` (Warning), no updates installed for `{$LINUX.UPDATES.INSTALL.MAXAGE}` and any updates available (*disabled by default*).
+
+### `APP Patch management all OS` (Windows and Linux, one template)
+
+One template for all hosts with the **same keys (`patch.*`) on Windows and Linux**, so a dashboard, a trigger or a report works the same for every OS. It is independent from the two templates above, which stay unchanged. Data are sent by `scripts/all-os/zbx-patch-windows.ps1` and `scripts/all-os/zbx-patch-linux.sh`.
+
+Values that exist on only one OS are kept too: on the other OS they are sent as `0` (for example *definition* on Linux, *kernel* on Windows). Values that can't be determined are not sent, so the item stays empty (for example severity on Debian / Ubuntu, because apt has no severity).
+
+| Item | Key | Windows | Linux |
+|------|-----|---------|-------|
+| Updates: All | `patch.updates.all` | updates and drivers (not hidden) | packages to upgrade / install |
+| Updates: Security | `patch.updates.security` | Security Updates | security advisory (dnf / yum), `*-security` suite (apt) |
+| Updates: Critical | `patch.updates.critical` | Critical Updates | security advisory with severity Critical (dnf / yum), not sent on apt |
+| Updates: Bugfix / Enhancement | `patch.updates.bugfix`, `.enhancement` | Updates / Feature Packs | bugfix / enhancement advisory (dnf / yum), not sent on apt |
+| Updates: Kernel | `patch.updates.kernel` | 0 | pending kernel packages |
+| Updates: Held / hidden | `patch.updates.held` | hidden updates | `apt-mark hold`, versionlock |
+| Updates: Definition, Service packs, Update rollups, Drivers, Upgrades | `patch.updates.definition`, `.servicepacks`, `.updaterollups`, `.drivers`, `.upgrades` | by classification | 0 |
+| Severity: Critical / Important / Moderate / Low | `patch.updates.severity.critical`, `.important`, `.moderate`, `.low` | MSRC severity | advisory severity (dnf / yum), not sent on apt |
+| Pending updates list | `patch.updates.list` | `[security] [Critical] KB… - title` | `[security] [Important] package version` |
+| Update history | `patch.history` | Windows Update history (without definition updates) | `/var/log/apt/history.log`, rpm install time |
+| Reboot required / reason | `patch.reboot.required`, `patch.reboot.reason` | Windows Update, Component Based Servicing | `reboot-required`, `needs-restarting`, newer kernel installed |
+| Last reboot time / time since | `patch.lastboot`, `patch.lastboot.age` | ✔ | ✔ |
+| Last update installed / age / patch day | `patch.lastupdate.timestamp`, `.age`, `.patchday` | detected on the host | detected on the host |
+| OS family / name / version | `patch.os`, `patch.os.name`, `patch.os.version` | build with UBR | distribution, running kernel |
+| Update source / availability | `patch.source`, `patch.source.available` | Windows Update, search succeeded | package manager, repositories reachable |
+| Automatic updates | `patch.autoupdate` | automatic updates policy | unattended-upgrades, dnf-automatic, yum-cron |
+| Windows Update service startup type | `patch.service.startup` | ✔ | not sent |
+| Last check time / age / duration / result | `patch.check.timestamp`, `.age`, `.duration`, `.result` | ✔ | ✔ |
+| Install run: time, age, status, result, count, failed, list | `patch.install.timestamp`, `.age`, `.status`, `.result`, `.count`, `.failed`, `.list` | install job, Ansible | install job, Ansible |
+
+Triggers: critical updates (High), security updates (Warning), reboot required (Info), reboot pending for more than `{$PATCH.REBOOT.MAXAGE}` (Warning), update source unavailable (Warning), update check failed (Warning), no data for `{$PATCH.NODATA}` (Warning), Windows Update service disabled (Warning), last install run failed (Warning); *disabled by default*: updates available (Info), automatic updates disabled (Info), no updates installed for `{$PATCH.LASTUPDATE.MAXAGE}` and updates pending (Warning).
+
+All times are sent as unix timestamps, so no time zone macros are needed. The patch day is stored in the host inventory field *Type (Full details)* and used in the trigger tag `UpdatePlan`.
 
 ## Requirements
 
@@ -133,6 +168,21 @@ Script parameters: `-SenderPath`, `-ConfigPath` (agent config with `Hostname` an
 
 Settings via environment variables: `ZABBIX_SENDER`, `ZABBIX_CONF`, `ZABBIX_SERVER`, `ZABBIX_HOST`.
 
+### All OS template
+1. Import `template_patch_management_all_os.yaml` and link `APP Patch management all OS` to Windows and Linux hosts. It can be linked together with the old templates during migration (different keys and a different inventory field).
+2. **Windows**: copy `scripts/all-os/zbx-patch-windows.ps1` to `C:\Program Files\Zabbix Agent 2\scripts\` and create a scheduled task:
+   ```powershell
+   schtasks /Create /TN "Zabbix patch check" /SC HOURLY /MO 3 /RU SYSTEM /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1\""
+   ```
+   Parameters: `-SenderPath`, `-ConfigPath`, `-ZabbixServer`, `-HostName`, `-HistoryLines` (default 50), `-IncludeDefinitionHistory`.
+3. **Linux**: `install -m 755 zbx-patch-linux.sh /usr/local/bin/zbx-patch-linux.sh` and run it from cron as root, for example `/etc/cron.d/zbx-patch-linux`:
+   ```
+   0 */3 * * * root /usr/local/bin/zbx-patch-linux.sh >/dev/null 2>&1
+   ```
+   Environment variables: `ZABBIX_SENDER`, `ZABBIX_CONF`, `ZABBIX_SERVER`, `ZABBIX_HOST`, `HISTORY_LINES` (default 50).
+4. Optional: the item *Patch - Run update check* (disabled) starts the script through the agent with the command in `{$PATCH.CHECK.CMD}` (default: Linux script). On Windows hosts set the host macro to `start /low powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1"`.
+5. Ansible: run the playbook with `-e zabbix_keys=allos` (or `both` during migration) to send the install results to the `patch.install.*` items.
+
 ### Ansible (optional)
 1. Copy `ansible/inventory.example.ini` to `inventory.ini` and fill in your hosts.
 2. Set `zabbix_server` in the playbook (or with `-e zabbix_server=…`).
@@ -155,6 +205,10 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 | `{$LINUX.UPDATES.SCRIPT}` | `/usr/local/bin/zbx-linux-updates.sh` | Linux check script path (agent option) |
 | `{$LINUX.UPDATES.NODATA}` | `2d` | No data alert (Linux) |
 | `{$LINUX.UPDATES.INSTALL.MAXAGE}` | `45d` | Alert when no updates were installed for this time |
+| `{$PATCH.NODATA}` | `2d` | No data alert (all OS template) |
+| `{$PATCH.REBOOT.MAXAGE}` | `7d` | Alert when a reboot is pending for this time (all OS template) |
+| `{$PATCH.LASTUPDATE.MAXAGE}` | `45d` | Alert when no updates were installed for this time and updates are pending (all OS template) |
+| `{$PATCH.CHECK.CMD}` | `/usr/local/bin/zbx-patch-linux.sh` | Command of the agent item *Patch - Run update check* (all OS template) |
 
 ## Notes
 

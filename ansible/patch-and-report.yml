@@ -8,6 +8,7 @@
 #
 # Windows: ansible.windows.win_updates   -> template 'APP Winupdates check'
 # Linux:   apt / dnf / yum                -> template 'APP Linux updates check'
+# Both, with -e zabbix_keys=allos (or both) -> template 'APP Patch management all OS'
 #
 # Requirements on the controller: zabbix_sender, collection ansible.windows
 # (ansible-galaxy collection install ansible.windows)
@@ -28,6 +29,9 @@
     zabbix_port: 10051
     # Host name in Zabbix (must match the "Host name" of the host in Zabbix)
     zabbix_host_name: "{{ zabbix_host | default(inventory_hostname) }}"
+    # Which keys to send: legacy (APP Winupdates check / APP Linux updates check),
+    # allos (APP Patch management all OS) or both
+    zabbix_keys: legacy
     # Reboot automatically when the updates need it
     patch_reboot: true
     patch_reboot_timeout: 3600
@@ -39,8 +43,11 @@
       - UpdateRollups
       - Updates
     # Run the check scripts after patching so Zabbix gets the new state right away
+    # (the scripts that are not installed on the host are skipped)
     win_check_script: 'C:\Program Files\Zabbix Agent 2\scripts\zbx-windows-updates.ps1'
     linux_check_script: /usr/local/bin/zbx-linux-updates.sh
+    win_check_script_allos: 'C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1'
+    linux_check_script_allos: /usr/local/bin/zbx-patch-linux.sh
 
   tasks:
     # =========================== WINDOWS ===========================
@@ -74,12 +81,28 @@
                          ~ ', failed ' ~ (wu.failed_update_count | default(0))) }}
               zbx.winupdate.vbs.install.lastrestart: "{{ ansible_lastboot | default('') }}"
               zbx.winupdate.vbs.rebootrequired: "{{ '1' if (wu.reboot_required | default(false)) else '0' }}"
+            zbx_values_allos:
+              patch.install.timestamp: "{{ ansible_date_time.epoch }}"
+              patch.install.status: "{{ '1' if (wu.failed | default(false)) or (wu.failed_update_count | default(0) | int > 0) else '0' }}"
+              patch.install.count: "{{ wu.installed_update_count | default(0) }}"
+              patch.install.failed: "{{ wu.failed_update_count | default(0) }}"
+              patch.install.list: >-
+                {{ (wu.updates | default({}) | dict2items | map(attribute='value')
+                    | selectattr('installed', 'defined') | selectattr('installed')
+                    | map(attribute='title') | list | join('\n')) or 'No updates installed' }}
+              patch.install.result: >-
+                {{ ('FAILED: ' ~ (wu.msg | default('unknown error'))) if (wu.failed | default(false))
+                   else ('OK, installed ' ~ (wu.installed_update_count | default(0))
+                         ~ ', failed ' ~ (wu.failed_update_count | default(0))) }}
 
-        - name: Run the Windows update check script
+        - name: Run the Windows update check scripts
           ansible.windows.win_shell: >-
-            powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{{ win_check_script }}"
+            powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{{ item }}"
           args:
-            removes: "{{ win_check_script }}"
+            removes: "{{ item }}"
+          loop:
+            - "{{ win_check_script }}"
+            - "{{ win_check_script_allos }}"
           changed_when: false
           failed_when: false
 
@@ -145,13 +168,26 @@
               linux.updates.install.result: >-
                 {{ ('FAILED: ' ~ (upd_apt.msg | default(upd_rpm.msg | default('unknown error')))) if (upd_failed | bool) else 'OK' }}
               linux.updates.rebootrequired: "{{ '0' if (patch_reboot | bool and reboot_needed.stdout == '1') else reboot_needed.stdout }}"
+            zbx_values_allos:
+              patch.install.timestamp: "{{ ansible_date_time.epoch }}"
+              patch.install.status: "{{ '1' if (upd_failed | bool) else '0' }}"
+              patch.install.count: "{{ pending | length if not (upd_failed | bool) else 0 }}"
+              patch.install.failed: "{{ pending | length if (upd_failed | bool) else 0 }}"
+              patch.install.list: "{{ (pending | join('\n')) or 'No updates installed' }}"
+              patch.install.result: >-
+                {{ ('FAILED: ' ~ (upd_apt.msg | default(upd_rpm.msg | default('unknown error')))) if (upd_failed | bool)
+                   else ('OK, installed ' ~ (pending | length)) }}
           vars:
             upd_failed: "{{ (upd_apt.failed | default(false)) or (upd_rpm.failed | default(false)) }}"
+            pending: "{{ pending_apt.stdout_lines | default([]) + pending_rpm.stdout_lines | default([]) }}"
 
-        - name: Run the Linux update check script
-          ansible.builtin.command: "{{ linux_check_script }}"
+        - name: Run the Linux update check scripts
+          ansible.builtin.command: "{{ item }}"
           args:
-            removes: "{{ linux_check_script }}"
+            removes: "{{ item }}"
+          loop:
+            - "{{ linux_check_script }}"
+            - "{{ linux_check_script_allos }}"
           changed_when: false
           failed_when: false
 
@@ -170,7 +206,10 @@
           - "{{ item.key }}"
           - -o
           - "{{ item.value | string }}"
-      loop: "{{ zbx_values | default({}) | dict2items }}"
+      loop: >-
+        {{ ((zbx_values | default({})) if zabbix_keys in ['legacy', 'both'] else {})
+           | combine((zbx_values_allos | default({})) if zabbix_keys in ['allos', 'both'] else {})
+           | dict2items }}
       loop_control:
         label: "{{ item.key }}"
       delegate_to: localhost
