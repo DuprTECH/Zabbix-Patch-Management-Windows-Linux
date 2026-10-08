@@ -25,26 +25,30 @@ One Zabbix 7.4 template to see the **update status of all your Windows and Linux
 
 ```mermaid
 flowchart LR
-    subgraph Host[Windows / Linux host]
-        CF[zbx-patch.conf<br/>maintenance window, AUTO_UPDATE,<br/>EXCLUDE, REBOOT]
-        C[Check script<br/>zbx-patch-windows.ps1<br/>zbx-patch-linux.sh]
-        I[Install updates<br/>Ansible / your update job]
+    S["cron / Task Scheduler<br/>check every 12 h + after a reboot,<br/>auto update every 15 min"]
+    subgraph Host["Windows / Linux host"]
+        CF["zbx-patch.conf<br/>maintenance window, AUTO_UPDATE,<br/>EXCLUDE, REBOOT"]
+        C["Check script<br/>zbx-patch-linux.sh<br/>zbx-patch-windows.ps1<br/><i>AUTO_UPDATE=true: installs the<br/>updates in the maintenance window</i>"]
     end
-    S[Task Scheduler / cron] --> C
-    A[Zabbix agent<br/>system.run] -. optional .-> C
+    Z[("Zabbix server / proxy")]
+    D["Host dashboard,<br/>triggers, history"]
+    S ==> C
     CF --> C
-    C -. AUTO_UPDATE=true:<br/>installs in the window .-> Host
-    AN[Ansible playbook<br/>patch-and-report.yml] -->|installs updates| Host
-    C -->|zabbix_sender| Z[(Zabbix server / proxy)]
-    I -->|zabbix_sender| Z
-    AN -->|zabbix_sender| Z
-    Z --> D[Host dashboard, triggers, history]
+    C ==>|"zabbix_sender<br/>patch.* + patch.install.*"| Z
+    Z ==> D
+    subgraph Opt["Optional"]
+        A["Zabbix agent<br/>system.run"]
+        AN["Ansible playbook<br/>or your update job"]
+    end
+    A -.->|starts the check| C
+    AN -.->|"installs updates,<br/>runs the check"| C
+    AN -.->|"zabbix_sender<br/>patch.install.*"| Z
 ```
 
-1. **Check** (`patch.*` items): the check script runs on the host every few hours and sends everything with zabbix_sender, including the patch settings of the host (`zbx-patch.conf`).
-2. **Install** (`patch.install.*` items): the check script itself in the maintenance window (`AUTO_UPDATE="true"`), the Ansible playbook from this repository, or your own update job installs the updates and sends the result.
+1. **Check** (`patch.*` items) – the main path: cron / Task Scheduler runs the check script on the host every few hours and it sends everything with zabbix_sender, including the patch settings of the host (`zbx-patch.conf`).
+2. **Install** (`patch.install.*` items): with `AUTO_UPDATE="true"` the check script itself installs the updates in the maintenance window and sends the result. Optionally the updates can be installed by the Ansible playbook from this repository or by your own update job, which sends the result the same way.
 
-The check and the install are independent: by default the check script **only reports** (`AUTO_UPDATE="false"`), see [Check only](#check-only-reporting) and [Patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot).
+By default the check script **only reports** (`AUTO_UPDATE="false"`), see [Check only](#check-only-reporting) and [Patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot).
 
 ## Contents
 
