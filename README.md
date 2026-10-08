@@ -162,7 +162,7 @@ Environment variables: `ZABBIX_SENDER`, `ZABBIX_CONF`, `ZABBIX_SERVER`, `ZABBIX_
 
 ### Check only (reporting)
 
-The check scripts **only read the update status and send it to Zabbix – they don't install or change anything** (on Linux they refresh the package lists, like the system does itself). So you can use them on their own:
+The check scripts **by default only read the update status and send it to Zabbix – they don't install or change anything** (on Linux they refresh the package lists, like the system does itself). Updates are installed only when you set `AUTO_UPDATE="true"` in the [patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot). So you can use them on their own:
 
 - if you **only want the reporting**, because updates are installed by another tool (WSUS, SCCM, Intune, AWX, unattended-upgrades, dnf-automatic, …) or by hand,
 - to **run the check more often** than your install job (for example every 4 hours, while patching runs once a month).
@@ -174,7 +174,7 @@ The install scripts below do the whole setup on one host: install the check scri
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -IntervalHours 4
 ```
-Parameters: `-IntervalHours` (1, 2, 3, 4, 6, 8, 12, 24), `-AgentDir`, `-ZabbixServer`, `-HostName`, `-NoRun`, `-MaintenanceWindow`, `-Exclude`, `-Reboot`. Creates the scheduled task *Zabbix patch check* (SYSTEM) and the [patch settings](#patch-settings-maintenance-window-excluded-updates-reboot) when missing.
+Parameters: `-IntervalHours` (1, 2, 3, 4, 6, 8, 12, 24), `-AgentDir`, `-ZabbixServer`, `-HostName`, `-NoRun`, `-MaintenanceWindow`, `-AutoUpdate`, `-Exclude`, `-Reboot`. Creates the scheduled tasks *Zabbix patch check* (also after a reboot) and *Zabbix patch auto update* (SYSTEM) and the [patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot) when missing.
 
 **Linux** (as root; installs `zabbix-sender` when missing, if the Zabbix repository is configured):
 ```bash
@@ -182,7 +182,7 @@ sudo ./install-check-linux.sh
 sudo INTERVAL_HOURS=4 ./install-check-linux.sh
 curl -fsSL https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/install-check-linux.sh | sudo bash
 ```
-Environment variables: `INTERVAL_HOURS`, `RUN_NOW=0`, `INSTALL_SENDER=0`, `ZABBIX_SERVER`, `ZABBIX_HOST`, `MAINTENANCE_WINDOW`, `EXCLUDE`, `REBOOT`. Creates `/etc/cron.d/zbx-patch-linux` and the [patch settings](#patch-settings-maintenance-window-excluded-updates-reboot) when missing.
+Environment variables: `INTERVAL_HOURS`, `RUN_NOW=0`, `INSTALL_SENDER=0`, `ZABBIX_SERVER`, `ZABBIX_HOST`, `MAINTENANCE_WINDOW`, `AUTO_UPDATE`, `EXCLUDE`, `REBOOT`. Creates `/etc/cron.d/zbx-patch-linux` (check, check after a reboot, auto update) and the [patch settings](#patch-settings-maintenance-window-automatic-updates-excluded-updates-reboot) when missing.
 
 **Many hosts with Ansible**: `ansible/check-windows.yml` and `ansible/check-linux.yml` do the same (the check script is downloaded on the controller, so the hosts don't need internet access):
 ```bash
@@ -190,15 +190,17 @@ ansible-playbook -i inventory.ini ansible/check-linux.yml
 ansible-playbook -i inventory.ini ansible/check-windows.yml -e zabbix_check_interval_hours=4
 ```
 
-### Patch settings: maintenance window, excluded updates, reboot
+### Patch settings: maintenance window, automatic updates, excluded updates, reboot
 
 Each host can have its own settings in **`zbx-patch.conf`** – Linux `/etc/zabbix/zbx-patch.conf`, Windows `<Zabbix agent folder>\zbx-patch.conf` (the same format on both):
 
 ```bash
 # when updates may be installed and the host rebooted, local time of the host, several separated by commas
-#   day: Mon..Sun, a range Mon-Fri, * = every day, 2.Sat = 2nd Saturday of the month
+#   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
 #   an end lower than the start = the window ends the next day; empty = any time
-MAINTENANCE_WINDOW="Sun 02:00-05:00, 2.Sat 22:00-04:00"
+MAINTENANCE_WINDOW="3 03:00-05:00"          # every Wednesday 03:00-05:00
+# true = the check script installs the updates itself in the maintenance window; false = check only (default)
+AUTO_UPDATE="false"
 # updates that are not installed, separated by commas
 #   Linux: package names, wildcards allowed; Windows: KB number or a part of the title
 EXCLUDE="kernel*, docker-ce"
@@ -206,9 +208,11 @@ EXCLUDE="kernel*, docker-ce"
 REBOOT="yes"
 ```
 
-- The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Excluded updates*, *Reboot allowed*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
-- Your **install job** reads them with `zbx-patch-linux.sh --show-config` / `zbx-patch-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_next`, `exclude` and `reboot_allowed` – so it can install updates only in the window, skip the excluded ones and not reboot when `REBOOT="no"`.
-- The **install scripts** create the file when it's missing. Without a given window it gets **every night 03:00–05:00** (`* 03:00-05:00`, never during the day). Set the values with `MAINTENANCE_WINDOW=… EXCLUDE=… REBOOT=…` (Linux) / `-MaintenanceWindow … -Exclude … -Reboot …` (Windows) – then an existing file is overwritten. Or just edit the file; the next check sends the new values.
+- The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Excluded updates*, *Reboot allowed*, *Automatic updates*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
+- **Automatic updates** (`AUTO_UPDATE="true"`): the check script is also started every 15 minutes with `--auto-update` / `-AutoUpdate` (cron / task *Zabbix patch auto update*). Outside the window (or with `false`) it exits right away; in an open window it installs the updates once per window (Linux apt / dnf / yum, Windows Update: security, critical, update rollups, definitions, updates), without `EXCLUDE`, sends the result to the `patch.install.*` items, reboots when needed and `REBOOT="yes"` and checks again after the reboot. Log: `/var/log/zbx-patch-update.log`, `C:\ProgramData\zbx-patch\update.log`.
+- **Install now by hand**: `zbx-patch-linux.sh --update` / `zbx-patch-windows.ps1 -Update` (only in the window, with `--force` / `-Force` also outside).
+- Your **install job** reads the settings with `zbx-patch-linux.sh --show-config` / `zbx-patch-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_next`, `exclude`, `reboot_allowed` and `auto_update`.
+- The **install scripts** write the file every time: values already in the file are kept, missing settings get the defaults (window **every night 03:00–05:00**, `AUTO_UPDATE="false"`, `REBOOT="yes"`), so running them again updates an installed host. Set the values with `MAINTENANCE_WINDOW=… AUTO_UPDATE=… EXCLUDE=… REBOOT=…` (Linux) / `-MaintenanceWindow … -AutoUpdate … -Exclude … -Reboot …` (Windows), or just edit the file – the next run uses the new values.
 
 ### Zabbix agent instead of cron / Task Scheduler (optional)
 The item *Patch - Run update check* (disabled) starts the script through the agent with the command in `{$PATCH.CHECK.CMD}` (needs `AllowKey=system.run[*]`). The default is the Linux script; on Windows hosts set the host macro to `start /low powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1"`. Running the Linux script as the zabbix user can't refresh the package lists, so cron as root is recommended.

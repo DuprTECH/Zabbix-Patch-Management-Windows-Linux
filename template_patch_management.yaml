@@ -17,8 +17,8 @@ zabbix_export:
         - Last update installed (detected on the host) and its patch day, last install run (sent by the install job / Ansible)
         - OS name and version / kernel, update source and its availability, automatic updates, Windows Update service
         - Last check time, age, duration and result
-        - Patch settings of the host (zbx-patch.conf): maintenance window and the next window, excluded updates
-          (and how many pending updates they match), reboot allowed
+        - Patch settings of the host (zbx-patch.conf): maintenance window and the next window, automatic updates
+          by the check script (AUTO_UPDATE), excluded updates (and how many pending updates they match), reboot allowed
         - Host dashboard 'Patch management': overview, categories and severity, installs and history
 
         Data are sent with zabbix_sender (trapper items) by the check scripts zbx-patch-windows.ps1 and zbx-patch-linux.sh,
@@ -214,6 +214,7 @@ zabbix_export:
             Updates are installed automatically (1) or not (0).
             Windows: automatic updates policy (not configured or "auto download and schedule the install") and the service is not disabled.
             Linux: unattended-upgrades (apt), dnf-automatic with apply_updates, yum-cron with apply_updates.
+            Both: AUTO_UPDATE="true" in zbx-patch.conf - the check script installs the updates itself in the maintenance window.
           valuemap:
             name: Enabled
           tags:
@@ -739,7 +740,8 @@ zabbix_export:
           trends: '0'
           description: |
             MAINTENANCE_WINDOW from the patch settings of the host (zbx-patch.conf): when updates may be installed and the host rebooted,
-            for example "Sun 02:00-05:00" or "* 05:12-07:12, 2.Sat 22:00-04:00". "-" = not set (any time).
+            for example "3 03:00-05:00" (Wednesday; days 1-7 = Monday-Sunday or Mon..Sun) or "* 03:00-05:00, 2.6 22:00-04:00".
+            "-" = not set (any time). With AUTO_UPDATE="true" the check script installs the updates in this window.
             An invalid window is sent with the error in brackets.
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT

@@ -44,15 +44,30 @@
 .PARAMETER PatchConfig
     Patch settings of the host (default: zbx-patch.conf in the folder of the agent config).
     The same file format as on Linux:
-      MAINTENANCE_WINDOW="Sun 02:00-05:00"     when updates may be installed and the host rebooted
+      MAINTENANCE_WINDOW="3 03:00-05:00"       when updates may be installed and the host rebooted
+                                                (day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday)
+      AUTO_UPDATE="false"                       true = this script installs the updates itself in the
+                                                maintenance window (-AutoUpdate task), false = check only
       EXCLUDE="KB5034441, Preview"              updates that are not installed (KB number or a part of the title)
       REBOOT="yes"                              reboot after updates when needed (no = report only)
     They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
-    patch.reboot.allowed) and read by the install job (Ansible) with -ShowConfig.
+    patch.reboot.allowed, patch.autoupdate) and read by the install job (Ansible) with -ShowConfig.
 
 .PARAMETER ShowConfig
-    Print the patch settings as JSON (window active now, next window, exclusions, reboot) and exit.
-    Nothing is checked or sent.
+    Print the patch settings as JSON (window active now, next window, exclusions, reboot, auto update)
+    and exit. Nothing is checked or sent.
+
+.PARAMETER Update
+    Install the updates now (Windows Update: security, critical, update rollups, definitions, updates;
+    without EXCLUDE), only in the maintenance window (with -Force also outside), send the result to
+    Zabbix (patch.install.*), reboot when needed and REBOOT="yes", then check.
+
+.PARAMETER AutoUpdate
+    For the scheduled task (every 15 min): with AUTO_UPDATE="true" and an open maintenance window
+    does -Update once per window, otherwise exits right away (log: C:\ProgramData\zbx-patch\update.log).
+
+.PARAMETER Force
+    With -Update: install also outside the maintenance window.
 
 .EXAMPLE
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File zbx-patch-windows.ps1
@@ -71,7 +86,10 @@ param(
     [int]$HistoryLines    = 50,
     [switch]$IncludeDefinitionHistory,
     [string]$PatchConfig  = "",
-    [switch]$ShowConfig
+    [switch]$ShowConfig,
+    [switch]$Update,
+    [switch]$AutoUpdate,
+    [switch]$Force
 )
 
 $start = Get-Date
@@ -155,6 +173,7 @@ $maintWindow   = "$($conf['MAINTENANCE_WINDOW'])"
 $excludeText   = "$($conf['EXCLUDE'])"
 $exclude       = @($excludeText -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $rebootAllowed = if ("$($conf['REBOOT'])" -match '^(no|false|0|off)$') { 0 } else { 1 }
+$autoInstall   = if ("$($conf['AUTO_UPDATE'])" -match '^(yes|true|1|on)$') { 1 } else { 0 }
 
 # Update excluded by EXCLUDE: KB number, or a part of the title (wildcards allowed)
 function Test-Excluded([string]$Title, [string]$Kb) {
@@ -162,13 +181,16 @@ function Test-Excluded([string]$Title, [string]$Kb) {
     return $false
 }
 
-# Maintenance window "<day> <HH:MM>-<HH:MM>, ..." - day: Mon, Mon-Fri, * (every day), 2.Sat (2nd Saturday
-# of the month); an end lower than the start = the next day
+# Maintenance window "<day> <HH:MM>-<HH:MM>, ..." - day: 3 or Wed (1 = Monday ... 7 = Sunday), a range
+# 1-5 / Mon-Fri, * (every day), 2.3 / 2.Wed (2nd Wednesday of the month); an end lower than the start = the next day
 function Get-Maintenance([string]$Spec) {
-    $r = @{ active = $false; next = $null; error = '' }
+    $r = @{ active = $false; start = $null; next = $null; error = '' }
     if (-not $Spec) { return $r }
     $days = 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
-    function DayNum($n) { for ($i = 0; $i -lt 7; $i++) { if ($days[$i] -eq $n) { return $i + 1 } }; 0 }
+    function DayNum($n) {
+        if ($n -match '^[1-7]$') { return [int]$n }
+        for ($i = 0; $i -lt 7; $i++) { if ($days[$i] -eq $n) { return $i + 1 } }; 0
+    }
     $wins = @()
     foreach ($w in ($Spec -split ',')) {
         $w = $w.Trim()
@@ -203,7 +225,7 @@ function Get-Maintenance([string]$Spec) {
             if (-not $match) { continue }
             $s = $day.AddMinutes($w.start); $e = $day.AddMinutes($w.end)
             if ($e -le $s) { $e = $e.AddDays(1) }
-            if ($now -ge $s -and $now -lt $e) { $r.active = $true }
+            if ($now -ge $s -and $now -lt $e) { $r.active = $true; $r.start = $s }
             if ($s -gt $now -and (-not $r.next -or $s -lt $r.next)) { $r.next = $s }
         }
     }
@@ -221,10 +243,110 @@ if ($ShowConfig) {
         maintenance_error  = $maint.error
         exclude            = $exclude
         reboot_allowed     = [bool]$rebootAllowed
+        auto_update        = [bool]$autoInstall
     } | ConvertTo-Json -Compress
     exit 0
 }
+
+# -AutoUpdate (scheduled task every 15 min): only with AUTO_UPDATE="true", in an open window, once per window
+$stateDir = Join-Path $env:ProgramData 'zbx-patch'
+$stamp    = Join-Path $stateDir 'last-auto-update'
+$logFile  = $null
+if ($AutoUpdate) {
+    if (-not ($autoInstall -and $maint.active)) { exit 0 }
+    $last = 0; try { $last = [long](Get-Content $stamp -ErrorAction Stop | Select-Object -First 1) } catch {}
+    if ($last -ge (ConvertTo-Epoch $maint.start)) { exit 0 }
+    New-Item -ItemType Directory -Force $stateDir | Out-Null
+    Set-Content -Path $stamp -Value (ConvertTo-Epoch (Get-Date))
+    $logFile = Join-Path $stateDir 'update.log'
+    Start-Transcript -Path $logFile -Append | Out-Null
+    Write-Output ("=== {0:yyyy-MM-dd HH:mm} automatic update in the maintenance window '{1}'" -f (Get-Date), $maintWindow)
+    $Update = $true; $Force = $true
+}
 if ($maint.error) { Write-Warning "${PatchConfig}: $($maint.error)" }
+
+# One run at a time (the check, the update and the scheduled tasks can overlap)
+$mutex = New-Object System.Threading.Mutex($false, 'Global\zbx-patch-windows')
+try { [void]$mutex.WaitOne([TimeSpan]::FromMinutes(30)) } catch [System.Threading.AbandonedMutexException] {}
+
+# ---------------- Install updates (-Update) ----------------
+# Like the Ansible playbook: security, critical, update rollups, definitions and updates without EXCLUDE,
+# reboot when needed and allowed; the result goes to the patch.install.* items
+function Install-Updates {
+    if ($maintWindow -and -not $maint.active -and -not $Force) {
+        $next = if ($maint.next) { '{0:yyyy-MM-dd HH:mm}' -f $maint.next } else { '-' }
+        Write-Host "SKIPPED: outside the maintenance window '$maintWindow', next window: $next. Install now with -Force."
+        return 'skipped'
+    }
+    $install = @('e6cf1350-c01b-414d-a61f-263d14d133b4', '0fa1201d-4330-4fa8-8ae9-b877473b6441', 'e0789628-ce08-4437-be74-2495b842f43b',
+                 '28bc880e-0592-4cbf-8f95-c79b17911d5f', 'cd5ffd1e-e932-4e3a-bf74-18bf0b1bbd83')
+    $installed = @(); $failed = @(); $err = ''; $needReboot = $false
+    Write-Host '=== Searching for updates'
+    try {
+        $session = New-Object -ComObject Microsoft.Update.Session
+        $found   = $session.CreateUpdateSearcher().Search("IsInstalled=0 and IsHidden=0 and Type='Software'").Updates
+        $coll    = New-Object -ComObject Microsoft.Update.UpdateColl
+        foreach ($u in $found) {
+            $ok = $false
+            foreach ($cat in $u.Categories) { if ($install -contains "$($cat.CategoryID)".ToLower()) { $ok = $true } }
+            if (-not $ok) { continue }
+            $kb = if ($u.KBArticleIDs.Count -gt 0) { 'KB' + $u.KBArticleIDs.Item(0) } else { '-' }
+            if ($exclude.Count -gt 0 -and (Test-Excluded $u.Title $kb)) { Write-Host "Excluded: $($u.Title)"; continue }
+            if (-not $u.EulaAccepted) { $u.AcceptEula() }
+            [void]$coll.Add($u)
+        }
+        if ($coll.Count -gt 0) {
+            for ($i = 0; $i -lt $coll.Count; $i++) { Write-Host "  $($coll.Item($i).Title)" }
+            Write-Host "=== Downloading and installing $($coll.Count) updates"
+            $dl = $session.CreateUpdateDownloader(); $dl.Updates = $coll; [void]$dl.Download()
+            $inst = $session.CreateUpdateInstaller(); $inst.Updates = $coll
+            $res = $inst.Install()
+            for ($i = 0; $i -lt $coll.Count; $i++) {
+                # 2 = succeeded, 3 = succeeded with errors
+                if ($res.GetUpdateResult($i).ResultCode -in 2, 3) { $installed += $coll.Item($i).Title } else { $failed += $coll.Item($i).Title }
+            }
+            $needReboot = [bool]$res.RebootRequired
+        } else {
+            Write-Host 'No updates to install.'
+        }
+        if ((New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired) { $needReboot = $true }
+    } catch {
+        $err = $_.Exception.Message
+    }
+    $doReboot = (-not $err) -and $needReboot -and $rebootAllowed
+    $result = if ($err) { "FAILED: $err" } else {
+        "OK, installed $($installed.Count), failed $($failed.Count)" + $(if ($doReboot) { ', rebooting' } elseif ($needReboot) { ', reboot required' } else { '' })
+    }
+    $list = @($installed | ForEach-Object { "Install  $_" }) + @($failed | ForEach-Object { "Failed  $_" })
+    Write-Host '=== Result'
+    $list | ForEach-Object { Write-Host $_ }
+    Write-Host $result
+    $status = if ($err -or $failed.Count -gt 0) { 1 } else { 0 }
+    $text   = if ($list.Count -gt 0) { $list -join "`n" } else { 'No updates installed' }
+    Send-ToZabbix -SenderArgs @('-k', 'patch.install.timestamp', '-o', (ConvertTo-Epoch (Get-Date))) | Out-Null
+    Send-ToZabbix -SenderArgs @('-k', 'patch.install.status', '-o', $status) | Out-Null
+    Send-ToZabbix -SenderArgs @('-k', 'patch.install.count', '-o', $installed.Count) | Out-Null
+    Send-ToZabbix -SenderArgs @('-k', 'patch.install.failed', '-o', $failed.Count) | Out-Null
+    Send-ToZabbix -SenderArgs @('-k', 'patch.install.list', '-o', (Clean $text)) | Out-Null
+    Send-ToZabbix -SenderArgs @('-k', 'patch.install.result', '-o', (Clean $result)) | Out-Null
+    if ($doReboot) {
+        Send-ToZabbix -SenderArgs @('-k', 'patch.reboot.required', '-o', 0) | Out-Null
+        # The check runs again after the reboot (startup trigger of the task "Zabbix patch check")
+        shutdown.exe /r /t 120 /c "Reboot after the update (zbx-patch-windows.ps1)"
+        Write-Host 'Rebooting in 2 minutes (cancel: shutdown /a).'
+        return 'reboot'
+    }
+    if ($needReboot) { Write-Warning "A reboot is required, but REBOOT=`"no`" in $PatchConfig" }
+    return 'done'
+}
+if ($Update) {
+    $updateResult = Install-Updates
+    if ($updateResult -in 'skipped', 'reboot') {
+        if ($logFile) { Stop-Transcript | Out-Null }
+        exit 0
+    }
+    Write-Output '=== Update check'
+}
 
 $counts = [ordered]@{
     all = 0; security = 0; critical = 0; bugfix = 0; enhancement = 0; definition = 0; servicepacks = 0
@@ -343,6 +465,8 @@ try {
     $level = (New-Object -ComObject Microsoft.Update.AutoUpdate).Settings.NotificationLevel
     if ($startup -ne 3 -and $level -in 0, 4) { $autoUpdate = 1 }
 } catch {}
+# AUTO_UPDATE="true" in zbx-patch.conf = this script installs the updates (-AutoUpdate task)
+if ($autoInstall) { $autoUpdate = 1 }
 
 # ---------------- Send ----------------
 $lines = @(
@@ -391,5 +515,6 @@ if ($searchOk) {
 
 Write-Output "Pending updates: $($counts.all) (critical $($counts.critical), security $($counts.security), excluded $excluded), reboot required: $rebootRequired, result: $result"
 $nextText = if ($maint.next) { " (next {0:yyyy-MM-dd HH:mm})" -f $maint.next } else { "" }
-Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed"
+Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed, auto update: $autoInstall"
+if ($logFile) { Stop-Transcript | Out-Null }
 exit 0

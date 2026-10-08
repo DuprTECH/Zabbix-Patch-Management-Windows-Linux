@@ -1,12 +1,14 @@
 ---
 # ----------------------------------------------------------------------------
-# Check only (no updates are installed) - Linux
+# Check (no updates are installed, unless AUTO_UPDATE="true" in zbx-patch.conf) - Linux
 #
 # Installs the check script zbx-patch-linux.sh on Linux hosts, schedules it and runs it,
 # so Zabbix (template 'APP Patch management all OS') gets the update status of the hosts:
 #   1. downloads the script from this repository (on the controller, the hosts don't need internet)
 #   2. installs it to /usr/local/bin and runs it by cron (/etc/cron.d/zbx-patch-linux)
 #      every 12 hours (+/- 30 min per host, so the hosts don't run at the same time)
+#      and after a reboot, plus --auto-update every 15 min (installs updates only with AUTO_UPDATE="true"
+#      in /etc/zabbix/zbx-patch.conf, in the maintenance window - see the README)
 #   3. runs the check now and shows its output (pending updates, reboot, zabbix_sender result)
 #
 # Use it when you only want the reporting (updates are installed by another tool or by hand),
@@ -108,6 +110,23 @@
         minute: "{{ (zabbix_check_offset | int) % 60 }}"
         hour: "{% for h in range(0, 24, zabbix_check_interval_hours | int) %}{{ (h + (zabbix_check_offset | int) // 60) % 24 }}{{ ',' if not loop.last else '' }}{% endfor %}"
         job: "{{ zabbix_check_script }} >/dev/null 2>&1"
+
+    - name: Cron - check after a reboot
+      ansible.builtin.cron:
+        name: Zabbix patch check after reboot
+        cron_file: zbx-patch-linux
+        user: root
+        special_time: reboot
+        job: "sleep 300; {{ zabbix_check_script }} >/dev/null 2>&1"
+
+    # Installs updates only with AUTO_UPDATE="true" in /etc/zabbix/zbx-patch.conf, in the maintenance window
+    - name: Cron - automatic update every 15 min
+      ansible.builtin.cron:
+        name: Zabbix patch auto update
+        cron_file: zbx-patch-linux
+        user: root
+        minute: "*/15"
+        job: "{{ zabbix_check_script }} --auto-update >>/var/log/zbx-patch-update.log 2>&1"
 
     - name: Run the check script
       ansible.builtin.command: "{{ zabbix_check_script }}"

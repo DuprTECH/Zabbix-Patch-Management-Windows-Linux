@@ -25,15 +25,24 @@
 #   PATCH_CONF      patch settings of the host (default: /etc/zabbix/zbx-patch.conf)
 #
 # Patch settings (PATCH_CONF, optional, the same file format on Windows):
-#   MAINTENANCE_WINDOW="Sun 02:00-05:00"   when updates may be installed and the host rebooted
+#   MAINTENANCE_WINDOW="3 03:00-05:00"     when updates may be installed and the host rebooted
+#                                          (day: 1-7 = Mon-Sun or Mon..Sun, 1-5, *, 2.3 = 2nd Wednesday)
+#   AUTO_UPDATE="false"                    true = this script installs the updates itself in the
+#                                          maintenance window (--auto-update from cron), false = check only
 #   EXCLUDE="kernel*, docker-ce"           packages that are not updated (wildcards allowed)
 #   REBOOT="yes"                           reboot after updates when needed (no = report only)
 # They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
-# patch.reboot.allowed) and read by the install job (Ansible) with --show-config.
+# patch.reboot.allowed, patch.autoupdate) and read by the install job (Ansible) with --show-config.
 #
 # Options:
 #   --show-config   print the patch settings as JSON (window active now, next window,
-#                   exclusions, reboot) and exit - nothing is checked or sent
+#                   exclusions, reboot, auto update) and exit - nothing is checked or sent
+#   --update        install the updates now (apt / dnf / yum, without EXCLUDE), only in the
+#                   maintenance window (with --force also outside), send the result to Zabbix
+#                   (patch.install.*), reboot when needed and REBOOT="yes", then check
+#   --auto-update   for cron (every 15 min): with AUTO_UPDATE="true" and an open maintenance
+#                   window does --update once per window, otherwise exits right away
+#                   (log: /var/log/zbx-patch-update.log via cron)
 #
 # Author : Dusan Priechodsky
 # Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
@@ -102,6 +111,8 @@ MAINTENANCE_WINDOW=$(trim "$(conf_get MAINTENANCE_WINDOW)")
 EXCLUDE=$(trim "$(conf_get EXCLUDE)")
 REBOOT_ALLOWED=1
 case "$(trim "$(conf_get REBOOT)" | tr '[:upper:]' '[:lower:]')" in no|false|0|off) REBOOT_ALLOWED=0 ;; esac
+AUTO_UPDATE=0
+case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|true|1|on) AUTO_UPDATE=1 ;; esac
 
 # Exclusions: comma separated package names, wildcards allowed
 EXCL=()
@@ -117,10 +128,12 @@ is_excluded() {
     return 1
 }
 
-# Day of a maintenance window: Mon, Mon-Fri, * (every day), 2.Sat (2nd Saturday of the month)
+# Day of a maintenance window: 3 or Wed (1 = Monday ... 7 = Sunday), a range 1-5 / Mon-Fri,
+# * (every day), 2.3 / 2.Wed (2nd Wednesday of the month)
 DAYS=(mon tue wed thu fri sat sun)
 day_num() {
     local i
+    case "$1" in [1-7]) echo "$1"; return 0 ;; esac
     for i in 0 1 2 3 4 5 6; do [ "${DAYS[$i]}" = "${1,,}" ] && { echo $(( i + 1 )); return 0; }; done
     return 1
 }
@@ -144,9 +157,10 @@ day_match() {
 }
 
 # Maintenance window "<day> <HH:MM>-<HH:MM>, ..." (an end lower than the start = the next day)
-# Sets MAINT_ACTIVE (0 / 1), MAINT_NEXT (start of the next window, unix time) and MAINT_ERROR
+# Sets MAINT_ACTIVE (0 / 1), MAINT_START (start of the open window), MAINT_NEXT (start of the
+# next window, unix time) and MAINT_ERROR
 maint_eval() {
-    MAINT_ACTIVE=0; MAINT_NEXT=""; MAINT_ERROR=""
+    MAINT_ACTIVE=0; MAINT_START=""; MAINT_NEXT=""; MAINT_ERROR=""
     [ -z "$MAINTENANCE_WINDOW" ] && return 0
     local w spec range extra now base d dow dom day0 s e i
     local -a wins specs starts ends
@@ -172,23 +186,142 @@ maint_eval() {
             day_match "${specs[$i]}" "$dow" "$dom" || continue
             s=$(( day0 + starts[i] * 60 )); e=$(( day0 + ends[i] * 60 ))
             [ "$e" -le "$s" ] && e=$(( e + 86400 ))
-            [ "$now" -ge "$s" ] && [ "$now" -lt "$e" ] && MAINT_ACTIVE=1
+            [ "$now" -ge "$s" ] && [ "$now" -lt "$e" ] && { MAINT_ACTIVE=1; MAINT_START=$s; }
             if [ "$s" -gt "$now" ] && { [ -z "$MAINT_NEXT" ] || [ "$s" -lt "$MAINT_NEXT" ]; }; then MAINT_NEXT=$s; fi
         done
     done
 }
 maint_eval
 
-if [ "$1" = "--show-config" ]; then
+MODE=check; FORCE=0
+for a in "$@"; do
+    case "$a" in
+        --show-config) MODE=show ;;
+        --update)      MODE=update ;;
+        --auto-update) MODE=auto ;;
+        --force)       FORCE=1 ;;
+    esac
+done
+tf() { [ "$1" -eq 1 ] && echo true || echo false; }
+
+if [ "$MODE" = show ]; then
     printf '{"config": %s, "config_found": %s, "maintenance_window": %s, "maintenance_active": %s, ' \
         "$(q "$PATCH_CONF")" "$([ -r "$PATCH_CONF" ] && echo true || echo false)" \
-        "$(q "$MAINTENANCE_WINDOW")" "$([ "$MAINT_ACTIVE" -eq 1 ] && echo true || echo false)"
+        "$(q "$MAINTENANCE_WINDOW")" "$(tf "$MAINT_ACTIVE")"
     printf '"maintenance_next": %s, "maintenance_error": %s, "exclude": [' "${MAINT_NEXT:-null}" "$(q "$MAINT_ERROR")"
     sep=""; for p in "${EXCL[@]}"; do printf '%s%s' "$sep" "$(q "$p")"; sep=", "; done
-    printf '], "reboot_allowed": %s}\n' "$([ "$REBOOT_ALLOWED" -eq 1 ] && echo true || echo false)"
+    printf '], "reboot_allowed": %s, "auto_update": %s}\n' "$(tf "$REBOOT_ALLOWED")" "$(tf "$AUTO_UPDATE")"
     exit 0
 fi
+
+# --auto-update (cron every 15 min): only with AUTO_UPDATE="true", in an open window, once per window
+STAMP=/var/lib/zbx-patch/last-auto-update
+if [ "$MODE" = auto ]; then
+    [ "$AUTO_UPDATE" -eq 1 ] && [ "$MAINT_ACTIVE" -eq 1 ] || exit 0
+    [ "$(cat "$STAMP" 2>/dev/null || echo 0)" -ge "$MAINT_START" ] 2>/dev/null && exit 0
+    mkdir -p "$(dirname "$STAMP")" && date +%s > "$STAMP"
+    echo "=== $(date '+%Y-%m-%d %H:%M') automatic update in the maintenance window '$MAINTENANCE_WINDOW'"
+    MODE=update; FORCE=1
+fi
 [ -n "$MAINT_ERROR" ] && echo "WARNING: $PATCH_CONF: $MAINT_ERROR" >&2
+
+# One run at a time (check, update and cron can overlap; apt / dnf need the lock too)
+{ exec 9>/run/zbx-patch-linux.lock; } 2>/dev/null && command -v flock >/dev/null 2>&1 && flock -w 1800 9
+
+# ---------------- Install updates (--update) ----------------
+# Like the Ansible playbook: refresh, upgrade without EXCLUDE, autoremove, reboot when needed
+# and allowed; the result goes to the patch.install.* items
+do_update() {
+    local pm="" need=0 rc=0 err="" changes count result doreboot=0 p n held_now newest
+    local -a held=() x=()
+    local w
+    for p in apt-get dnf yum; do command -v $p >/dev/null 2>&1 && { pm=$p; break; }; done
+    if [ -z "$pm" ]; then echo "ERROR: --update supports apt, dnf and yum" >&2; return 1; fi
+    if [ -n "$MAINTENANCE_WINDOW" ] && [ "$MAINT_ACTIVE" -ne 1 ] && [ "$FORCE" -ne 1 ]; then
+        echo "SKIPPED: outside the maintenance window '$MAINTENANCE_WINDOW'${MAINT_ERROR:+ ($MAINT_ERROR)}, next window: $( [ -n "$MAINT_NEXT" ] && date -d "@$MAINT_NEXT" '+%Y-%m-%d %H:%M' || echo -). Install now with --force."
+        return 2
+    fi
+    w=$(mktemp -d)
+    snap() {
+        if [ "$pm" = apt-get ]; then
+            dpkg-query -W -f='${db:Status-Abbrev} ${binary:Package} ${Version}\n' | awk '$1 ~ /^ii/ {print $2" "$3}'
+        else
+            rpm -qa --qf '%{NAME}.%{ARCH} %{EPOCHNUM}:%{VERSION}-%{RELEASE}\n'
+        fi | sort
+    }
+    snap > "$w/before"
+    echo "=== Installing updates ($pm)${EXCL[0]:+, excluded: ${EXCL[*]}}"
+    if [ "$pm" = apt-get ]; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -q || { rc=1; err="apt-get update failed"; }
+        # apt has no exclude: hold the excluded packages for the upgrade, release them afterwards
+        if [ ${#EXCL[@]} -gt 0 ]; then
+            held_now=$(apt-mark showhold)
+            for p in "${EXCL[@]}"; do
+                for n in $(dpkg-query -W -f='${Package}\n' "$p" 2>/dev/null | sort -u); do
+                    printf '%s\n' "$held_now" | grep -qx "$n" || { apt-mark hold "$n" >/dev/null && held+=("$n"); }
+                done
+            done
+            [ ${#held[@]} -gt 0 ] && echo "Held for the update: ${held[*]}"
+        fi
+        if [ "$rc" -eq 0 ]; then
+            apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold dist-upgrade \
+                || { rc=1; err="apt-get dist-upgrade failed"; }
+        fi
+        [ ${#held[@]} -gt 0 ] && apt-mark unhold "${held[@]}" >/dev/null
+        [ "$rc" -eq 0 ] && apt-get -y -q autoremove >/dev/null
+        [ -f /var/run/reboot-required ] && need=1
+    else
+        for p in "${EXCL[@]}"; do x+=("--exclude=$p"); done
+        [ "$pm" = dnf ] && dnf -q makecache >/dev/null 2>&1
+        $pm -y upgrade "${x[@]}" || { rc=1; err="$pm upgrade failed"; }
+        [ "$rc" -eq 0 ] && $pm -y -q autoremove >/dev/null 2>&1
+        # needs-restarting -r: exit 1 = reboot required (dnf-plugins-core / yum-utils)
+        if ! command -v needs-restarting >/dev/null 2>&1 && ! dnf needs-restarting --help >/dev/null 2>&1; then
+            $pm install -y -q "$( [ "$pm" = yum ] && echo yum-utils || echo dnf-plugins-core)" >/dev/null 2>&1
+        fi
+        if command -v needs-restarting >/dev/null 2>&1; then needs-restarting -r >/dev/null 2>&1; [ $? -eq 1 ] && need=1
+        elif dnf needs-restarting --help >/dev/null 2>&1; then dnf needs-restarting -r >/dev/null 2>&1; [ $? -eq 1 ] && need=1; fi
+    fi
+    # Fallback: the newest installed kernel is not the running one
+    if [ "$need" -eq 0 ]; then
+        newest=$(ls -1 /boot/vmlinuz-* 2>/dev/null | sed 's|^/boot/vmlinuz-||' | grep -v rescue | sort -V | tail -n 1)
+        [ -n "$newest" ] && [ "$newest" != "$(uname -r)" ] && need=1
+    fi
+    snap > "$w/after"
+    changes=$(awk 'NR == FNR { b[$1] = $2; next }
+        { a[$1] = $2
+          if (($1 in b) == 0) print "Install  " $1 " " $2
+          else if (b[$1] != $2) print "Upgrade  " $1 " " b[$1] " -> " $2 }
+        END { for (k in b) if ((k in a) == 0) print "Remove  " k " " b[k] }' "$w/before" "$w/after")
+    rm -rf "$w"
+    count=$(printf '%s' "$changes" | grep -c .)
+    [ "$rc" -eq 0 ] && [ "$need" -eq 1 ] && [ "$REBOOT_ALLOWED" -eq 1 ] && doreboot=1
+    if [ "$rc" -ne 0 ]; then result="FAILED: $err"
+    else result="OK, changed $count packages$( [ "$doreboot" -eq 1 ] && echo ', rebooting')$( [ "$need" -eq 1 ] && [ "$doreboot" -eq 0 ] && echo ', reboot required')"; fi
+    echo "=== Result"
+    [ -n "$changes" ] && printf '%s\n' "$changes"
+    echo "$result"
+    send -k patch.install.timestamp -o "$(date +%s)" >/dev/null
+    send -k patch.install.status -o "$( [ "$rc" -eq 0 ] && echo 0 || echo 1)" >/dev/null
+    send -k patch.install.count -o "$count" >/dev/null
+    send -k patch.install.list -o "${changes:-No packages changed}" >/dev/null
+    send -k patch.install.result -o "$result" >/dev/null
+    if [ "$doreboot" -eq 1 ]; then
+        send -k patch.reboot.required -o 0 >/dev/null
+        # The check runs again after the reboot (@reboot line in /etc/cron.d/zbx-patch-linux)
+        shutdown -r +2 "Reboot after the update (zbx-patch-linux.sh)"
+        echo "Rebooting in 2 minutes (cancel: shutdown -c)."
+        exit 0
+    fi
+    [ "$need" -eq 1 ] && echo "WARNING: a reboot is required, but REBOOT=\"no\" in $PATCH_CONF" >&2
+    return "$rc"
+}
+if [ "$MODE" = update ]; then
+    [ "$(id -u)" -eq 0 ] || { echo "ERROR: --update needs root" >&2; exit 1; }
+    do_update; [ $? -eq 2 ] && exit 0
+    echo "=== Update check"
+fi
 
 START=$(date +%s)
 WORK=$(mktemp -d)
@@ -415,7 +548,8 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.check.result $(q "$RESULT")"
     echo "- patch.reboot.required $REBOOT"
     [ -n "$LASTBOOT" ] && echo "- patch.lastboot $LASTBOOT"
-    echo "- patch.autoupdate $AUTOUPDATE"
+    # AUTO_UPDATE="true" in zbx-patch.conf = this script installs the updates (--auto-update)
+    echo "- patch.autoupdate $(( AUTOUPDATE | AUTO_UPDATE ))"
     echo "- patch.reboot.allowed $REBOOT_ALLOWED"
     echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
     [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"

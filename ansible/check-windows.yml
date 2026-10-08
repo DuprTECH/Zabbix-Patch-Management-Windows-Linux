@@ -1,12 +1,14 @@
 ---
 # ----------------------------------------------------------------------------
-# Check only (no updates are installed) - Windows
+# Check (no updates are installed, unless AUTO_UPDATE="true" in zbx-patch.conf) - Windows
 #
 # Installs the check script zbx-patch-windows.ps1 on Windows hosts, schedules it and runs it,
 # so Zabbix (template 'APP Patch management all OS') gets the update status of the hosts:
 #   1. downloads the script from this repository (on the controller, the hosts don't need internet)
 #   2. installs it to <Zabbix agent folder>\scripts and runs it by Task Scheduler
 #      (task "Zabbix patch check", SYSTEM) every 12 hours (+/- 30 min per host)
+#      and after a reboot, plus the task "Zabbix patch auto update" every 15 min (installs updates only
+#      with AUTO_UPDATE="true" in zbx-patch.conf, in the maintenance window - see the README)
 #   3. runs the check now and shows its output (pending updates, reboot, zabbix_sender result)
 #
 # Use it when you only want the reporting (updates are installed by WSUS, SCCM, Intune, another
@@ -84,24 +86,38 @@
         content: "{{ zbx_check_script_content }}"
         dest: "{{ zbx_win.script }}"
 
-    - name: Task Scheduler - run the check script every {{ zabbix_check_interval_hours }} h
+    - name: Task Scheduler - check every {{ zabbix_check_interval_hours }} h and after a reboot, automatic update every 15 min
       ansible.windows.win_shell: |
-        $name   = '{{ zabbix_check_task_name }}'
-        $arg    = '-NoProfile -ExecutionPolicy Bypass -File "{{ zbx_win.script }}" -SenderPath "{{ zbx_win.sender }}" -ConfigPath "{{ zbx_win.conf }}"'
-        $offset = {{ zabbix_check_offset | int }}
-        $minute = (($offset % 60) + 60) % 60
-        $hours  = @(0..23 | Where-Object { $_ % {{ zabbix_check_interval_hours | int }} -eq 0 })
-
-        $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-        if ($t -and $t.Actions[0].Arguments -eq $arg -and $t.Triggers.Count -eq $hours.Count -and
-            ([datetime]$t.Triggers[0].StartBoundary).Minute -eq $minute) { 'unchanged'; exit 0 }
-
-        $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
-        $triggers  = foreach ($h in $hours) { New-ScheduledTaskTrigger -Daily -At (Get-Date).Date.AddHours($h).AddMinutes($offset) }
+        $arg       = '-NoProfile -ExecutionPolicy Bypass -File "{{ zbx_win.script }}" -SenderPath "{{ zbx_win.sender }}" -ConfigPath "{{ zbx_win.conf }}"'
+        $offset    = {{ zabbix_check_offset | int }}
+        $minute    = (($offset % 60) + 60) % 60
+        $hours     = @(0..23 | Where-Object { $_ % {{ zabbix_check_interval_hours | int }} -eq 0 })
         $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-        $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
-        Register-ScheduledTask -TaskName $name -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
-        'changed'
+        $changed   = $false
+        # Check: every N hours + 5 min after a reboot
+        $name = '{{ zabbix_check_task_name }}'
+        $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if (-not ($t -and $t.Actions[0].Arguments -eq $arg -and $t.Triggers.Count -eq ($hours.Count + 1) -and
+                  ([datetime]$t.Triggers[0].StartBoundary).Minute -eq $minute)) {
+            $triggers = @(foreach ($h in $hours) { New-ScheduledTaskTrigger -Daily -At (Get-Date).Date.AddHours($h).AddMinutes($offset) })
+            $boot = New-ScheduledTaskTrigger -AtStartup; $boot.Delay = 'PT5M'; $triggers += $boot
+            $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+            Register-ScheduledTask -TaskName $name -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg) `
+                -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
+            $changed = $true
+        }
+        # Automatic update: every 15 min, installs only with AUTO_UPDATE="true" in zbx-patch.conf, in the maintenance window
+        $name = 'Zabbix patch auto update'
+        $t = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if (-not ($t -and $t.Actions[0].Arguments -eq "$arg -AutoUpdate")) {
+            $every15 = New-ScheduledTaskTrigger -Daily -At '00:00'
+            $every15.Repetition = (New-ScheduledTaskTrigger -Once -At '00:00' -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Hours 24)).Repetition
+            $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 4)
+            Register-ScheduledTask -TaskName $name -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "$arg -AutoUpdate") `
+                -Trigger $every15 -Principal $principal -Settings $settings -Force | Out-Null
+            $changed = $true
+        }
+        if ($changed) { 'changed' } else { 'unchanged' }
       register: zbx_task
       changed_when: zbx_task.stdout | trim == 'changed'
 

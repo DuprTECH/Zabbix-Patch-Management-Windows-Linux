@@ -22,14 +22,17 @@
 #   ZABBIX_SERVER      optional Zabbix server / proxy for the check (instead of ServerActive)
 #   ZABBIX_HOST        optional host name in Zabbix (instead of Hostname / uname -n)
 #
-# Patch settings /etc/zabbix/zbx-patch.conf (created when missing, overwritten when one of
-# these is set; see the comments in the file):
-#   MAINTENANCE_WINDOW when updates may be installed, for example "Sun 02:00-05:00"
+# Patch settings /etc/zabbix/zbx-patch.conf (written every time: values already in the file are
+# kept unless given here, missing settings get the defaults; see the comments in the file):
+#   MAINTENANCE_WINDOW when updates may be installed, for example "3 03:00-05:00" (Wednesday)
 #                      (default: "* 03:00-05:00" - every night, never during the day)
+#   AUTO_UPDATE        true = the check script installs the updates in the window (default: false)
 #   EXCLUDE            packages that are not updated, for example "kernel*, docker-ce"
 #   REBOOT             reboot after updates when needed: yes / no (default: yes)
 #
-#   sudo MAINTENANCE_WINDOW="Sat 22:00-04:00" EXCLUDE="docker-ce*" ./install-check-linux.sh
+#   sudo MAINTENANCE_WINDOW="3 03:00-05:00" AUTO_UPDATE=true ./install-check-linux.sh
+#
+# Running it again updates an existing installation (script, cron, new settings).
 #
 # Uses zbx-patch-linux.sh from the same folder, or downloads it from GitHub.
 #
@@ -88,40 +91,51 @@ ENVS=""
 [ -n "$ZABBIX_HOST" ]   && ENVS="$ENVS ZABBIX_HOST=$ZABBIX_HOST"
 cat > "$CRON" <<EOF
 # Zabbix patch check (template 'APP Patch management all OS') - installed by install-check-linux.sh
+# check every $INTERVAL_HOURS h, check after a reboot, automatic update (AUTO_UPDATE="true" in $CONF) every 15 min
 $MINUTE $HOURS * * * root$ENVS $DEST >/dev/null 2>&1
+@reboot root sleep 300;$ENVS $DEST >/dev/null 2>&1
+*/15 * * * * root$ENVS $DEST --auto-update >>/var/log/zbx-patch-update.log 2>&1
 EOF
 chmod 644 "$CRON"
-echo "Cron $CRON: $MINUTE $HOURS * * * (every $INTERVAL_HOURS h)"
+echo "Cron $CRON: check $MINUTE $HOURS * * * (every $INTERVAL_HOURS h) and after a reboot, auto update every 15 min"
 
-# 4. Patch settings: created when missing, overwritten when a setting is given
-if [ ! -f "$CONF" ] || [ -n "${MAINTENANCE_WINDOW+x}${EXCLUDE+x}${REBOOT+x}" ]; then
-    # Default window: every night 03:00-05:00, never during the day
-    [ -z "${MAINTENANCE_WINDOW+x}" ] && MAINTENANCE_WINDOW="* 03:00-05:00"
-    mkdir -p "$(dirname "$CONF")"
-    cat > "$CONF" <<EOF
+# 4. Patch settings: written every time - the values already in the file are kept (unless given
+#    here), missing settings are added with the defaults
+cur() {
+    [ -f "$CONF" ] && grep -qE "^[[:space:]]*$1[[:space:]]*=" "$CONF" || return 1
+    sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"?([^\"#]*)\"?.*/\1/p" "$CONF" | tail -n 1 | sed 's/[[:space:]]*$//'
+}
+[ -n "${MAINTENANCE_WINDOW+x}" ] || MAINTENANCE_WINDOW=$(cur MAINTENANCE_WINDOW) || MAINTENANCE_WINDOW="* 03:00-05:00"
+[ -n "${AUTO_UPDATE+x}" ]        || AUTO_UPDATE=$(cur AUTO_UPDATE)               || AUTO_UPDATE="false"
+[ -n "${EXCLUDE+x}" ]            || EXCLUDE=$(cur EXCLUDE)                       || EXCLUDE=""
+[ -n "${REBOOT+x}" ]             || REBOOT=$(cur REBOOT)                         || REBOOT="yes"
+mkdir -p "$(dirname "$CONF")"
+cat > "$CONF" <<EOF
 # zbx-patch.conf - patch management settings of this host
 # Read by the check script zbx-patch-linux.sh (sent to Zabbix, template 'APP Patch management all OS')
 # and by the install job (Ansible playbook, your update script, ...).
 #
 # Maintenance window - when updates may be installed and the host rebooted.
 #   "<day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
-#   day: Mon..Sun, a range Mon-Fri, * = every day, 2.Sat = 2nd Saturday of the month
-#   an end lower than the start = the window ends the next day (Sat 22:00-04:00)
+#   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
+#   an end lower than the start = the window ends the next day (6 22:00-04:00)
 #   empty = any time
+#   MAINTENANCE_WINDOW="3 03:00-05:00"   = every Wednesday 03:00-05:00
 MAINTENANCE_WINDOW="$MAINTENANCE_WINDOW"
+
+# Automatic updates: true = the check script installs the updates itself in the maintenance window
+# (cron every 15 min, once per window, log /var/log/zbx-patch-update.log); false = check only
+AUTO_UPDATE="$AUTO_UPDATE"
 
 # Updates that are not installed, separated by commas: package names, wildcards allowed
 #   EXCLUDE="kernel*, docker-ce"
-EXCLUDE="${EXCLUDE:-}"
+EXCLUDE="$EXCLUDE"
 
 # Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix)
-REBOOT="${REBOOT:-yes}"
+REBOOT="$REBOOT"
 EOF
-    chmod 644 "$CONF"
-    echo "Patch settings $CONF: window '$MAINTENANCE_WINDOW', exclude '${EXCLUDE:-}', reboot ${REBOOT:-yes}"
-else
-    echo "Patch settings $CONF: kept (set MAINTENANCE_WINDOW / EXCLUDE / REBOOT to overwrite)"
-fi
+chmod 644 "$CONF"
+echo "Patch settings $CONF: window '$MAINTENANCE_WINDOW', auto update $AUTO_UPDATE, exclude '$EXCLUDE', reboot $REBOOT"
 
 # 5. Run the check now
 if [ "$RUN_NOW" = "1" ]; then

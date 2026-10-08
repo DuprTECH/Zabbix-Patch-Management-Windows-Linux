@@ -33,10 +33,14 @@
     Install only, don't run the check now.
 
 .PARAMETER MaintenanceWindow
-    Patch settings <Zabbix agent folder>\zbx-patch.conf (created when missing, overwritten when
-    -MaintenanceWindow, -Exclude or -Reboot is given; see the comments in the file):
-    when updates may be installed, for example "Sun 02:00-05:00"
+    Patch settings <Zabbix agent folder>\zbx-patch.conf (written every time: values already in the file
+    are kept unless given here, missing settings get the defaults; see the comments in the file):
+    when updates may be installed, for example "3 03:00-05:00" (Wednesday)
     (default: "* 03:00-05:00" - every night, never during the day).
+
+.PARAMETER AutoUpdate
+    true = the check script installs the updates itself in the maintenance window
+    (task "Zabbix patch auto update" every 15 min, once per window); false = check only (default).
 
 .PARAMETER Exclude
     Updates that are not installed, for example "KB5034441, Preview" (KB number or a part of the title).
@@ -47,7 +51,8 @@
 .EXAMPLE
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -IntervalHours 4
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -MaintenanceWindow "Sat 22:00-04:00" -Exclude "Preview"
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -MaintenanceWindow "3 03:00-05:00" -AutoUpdate true
+    Running it again updates an existing installation (script, tasks, new settings).
 
 .NOTES
     Author : Dusan Priechodsky
@@ -63,6 +68,8 @@ param(
     [string]$HostName = "",
     [switch]$NoRun,
     [string]$MaintenanceWindow,
+    [ValidateSet('true', 'false')]
+    [string]$AutoUpdate,
     [string]$Exclude,
     [ValidateSet('yes', 'no')]
     [string]$Reboot
@@ -70,6 +77,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $Url      = 'https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/zbx-patch-windows.ps1'
 $TaskName = 'Zabbix patch check'
+$AutoTaskName = 'Zabbix patch auto update'
 
 # 1. Zabbix agent
 if (-not $AgentDir) {
@@ -102,33 +110,53 @@ $offset = ($hash % 61) - 30
 $arg    = "-NoProfile -ExecutionPolicy Bypass -File `"$dest`" -SenderPath `"$sender`" -ConfigPath `"$($conf.FullName)`""
 if ($ZabbixServer) { $arg += " -ZabbixServer `"$ZabbixServer`"" }
 if ($HostName)     { $arg += " -HostName `"$HostName`"" }
-$triggers = foreach ($h in (0..23 | Where-Object { $_ % $IntervalHours -eq 0 })) {
+$triggers = @(foreach ($h in (0..23 | Where-Object { $_ % $IntervalHours -eq 0 })) {
     New-ScheduledTaskTrigger -Daily -At (Get-Date).Date.AddHours($h).AddMinutes($offset)
-}
+})
+# Check also 5 minutes after a reboot (after an update)
+$boot = New-ScheduledTaskTrigger -AtStartup; $boot.Delay = 'PT5M'; $triggers += $boot
 $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 1)
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
-Write-Output ("Scheduled task '{0}': every {1} h, offset {2} min" -f $TaskName, $IntervalHours, $offset)
+Write-Output ("Scheduled task '{0}': every {1} h, offset {2} min, and after a reboot" -f $TaskName, $IntervalHours, $offset)
+# Automatic update (AUTO_UPDATE="true" in zbx-patch.conf): every 15 min, the script exits right away
+# outside the maintenance window, so it installs the updates once per window
+$every15 = New-ScheduledTaskTrigger -Daily -At '00:00'
+$every15.Repetition = (New-ScheduledTaskTrigger -Once -At '00:00' -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Hours 24)).Repetition
+Register-ScheduledTask -TaskName "$AutoTaskName" -Force -Principal $principal -Trigger $every15 `
+    -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "$arg -AutoUpdate") `
+    -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 4)) | Out-Null
+Write-Output "Scheduled task '$AutoTaskName': every 15 min (installs updates only with AUTO_UPDATE=`"true`")"
 
-# 4. Patch settings: created when missing, overwritten when a setting is given
+# 4. Patch settings: written every time - the values already in the file are kept (unless given
+#    here), missing settings are added with the defaults
 $patchConf = Join-Path $AgentDir 'zbx-patch.conf'
-$given = $PSBoundParameters.ContainsKey('MaintenanceWindow') -or $PSBoundParameters.ContainsKey('Exclude') -or $PSBoundParameters.ContainsKey('Reboot')
-if (-not (Test-Path $patchConf) -or $given) {
-    # Default window: every night 03:00-05:00, never during the day
-    if (-not $PSBoundParameters.ContainsKey('MaintenanceWindow')) { $MaintenanceWindow = '* 03:00-05:00' }
-    if (-not $Reboot) { $Reboot = 'yes' }
-    @"
+$cur = @{}
+if (Test-Path $patchConf) {
+    foreach ($l in Get-Content $patchConf) { if ($l -match '^\s*([A-Z_]+)\s*=\s*"?([^"#]*)"?') { $cur[$Matches[1]] = $Matches[2].Trim() } }
+}
+$MaintenanceWindow = if ($PSBoundParameters.ContainsKey('MaintenanceWindow')) { $MaintenanceWindow } elseif ($cur.ContainsKey('MAINTENANCE_WINDOW')) { $cur['MAINTENANCE_WINDOW'] } else { '* 03:00-05:00' }
+$AutoUpdate        = if ($PSBoundParameters.ContainsKey('AutoUpdate')) { $AutoUpdate } elseif ($cur.ContainsKey('AUTO_UPDATE')) { $cur['AUTO_UPDATE'] } else { 'false' }
+$Exclude           = if ($PSBoundParameters.ContainsKey('Exclude')) { $Exclude } elseif ($cur.ContainsKey('EXCLUDE')) { $cur['EXCLUDE'] } else { '' }
+$Reboot            = if ($PSBoundParameters.ContainsKey('Reboot')) { $Reboot } elseif ($cur.ContainsKey('REBOOT')) { $cur['REBOOT'] } else { 'yes' }
+@"
 # zbx-patch.conf - patch management settings of this host
 # Read by the check script zbx-patch-windows.ps1 (sent to Zabbix, template 'APP Patch management all OS')
 # and by the install job (Ansible playbook, your update script, ...).
 #
 # Maintenance window - when updates may be installed and the host rebooted.
 #   "<day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
-#   day: Mon..Sun, a range Mon-Fri, * = every day, 2.Sat = 2nd Saturday of the month
-#   an end lower than the start = the window ends the next day (Sat 22:00-04:00)
+#   day: 1-7 = Monday-Sunday (or Mon..Sun), a range 1-5, * = every day, 2.3 = 2nd Wednesday of the month
+#   an end lower than the start = the window ends the next day (6 22:00-04:00)
 #   empty = any time
+#   MAINTENANCE_WINDOW="3 03:00-05:00"   = every Wednesday 03:00-05:00
 MAINTENANCE_WINDOW="$MaintenanceWindow"
+
+# Automatic updates: true = the check script installs the updates itself in the maintenance window
+# (task "Zabbix patch auto update" every 15 min, once per window, log C:\ProgramData\zbx-patch\update.log);
+# false = check only
+AUTO_UPDATE="$AutoUpdate"
 
 # Updates that are not installed, separated by commas: KB number or a part of the title
 #   EXCLUDE="KB5034441, Preview"
@@ -137,10 +165,7 @@ EXCLUDE="$Exclude"
 # Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix)
 REBOOT="$Reboot"
 "@ | Set-Content -Path $patchConf -Encoding ASCII
-    Write-Output "Patch settings ${patchConf}: window '$MaintenanceWindow', exclude '$Exclude', reboot $Reboot"
-} else {
-    Write-Output "Patch settings ${patchConf}: kept (use -MaintenanceWindow / -Exclude / -Reboot to overwrite)"
-}
+Write-Output "Patch settings ${patchConf}: window '$MaintenanceWindow', auto update $AutoUpdate, exclude '$Exclude', reboot $Reboot"
 
 # 5. Run the check now
 if (-not $NoRun) {
