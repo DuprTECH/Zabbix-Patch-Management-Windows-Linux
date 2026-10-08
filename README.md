@@ -80,8 +80,11 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Windows Update service startup type | `patch.service.startup` | ✔ | not sent |
 | Last check time / age / duration / result | `patch.check.timestamp`, `.age`, `.duration`, `.result` | ✔ | ✔ |
 | Install run: time, age, status, result, count, failed, list | `patch.install.timestamp`, `.age`, `.status`, `.result`, `.count`, `.failed`, `.list` | install job, Ansible | install job, Ansible |
+| Maintenance window / next window | `patch.maintenance.window`, `patch.maintenance.next` | `zbx-patch.conf` | `zbx-patch.conf` |
+| Excluded updates (config) / pending excluded | `patch.exclude`, `patch.updates.excluded` | KB or a part of the title | package names (wildcards) |
+| Reboot allowed | `patch.reboot.allowed` | `zbx-patch.conf` | `zbx-patch.conf` |
 
-**Triggers**: critical updates (High), security updates (Warning), reboot required (Info), reboot pending for more than `{$PATCH.REBOOT.MAXAGE}` (Warning), update source unavailable (Warning), update check failed (Warning), no data for `{$PATCH.NODATA}` (Warning), Windows Update service disabled (Warning), last install run failed (Warning); *disabled by default*: updates available (Info), automatic updates disabled (Info), no updates installed for `{$PATCH.LASTUPDATE.MAXAGE}` and updates pending (Warning). All triggers have the tag `service: patch-management`.
+**Triggers**: critical updates (High), security updates (Warning), reboot required (Info), reboot pending for more than `{$PATCH.REBOOT.MAXAGE}` (Warning), update source unavailable (Warning), update check failed (Warning), no data for `{$PATCH.NODATA}` (Warning), Windows Update service disabled (Warning), last install run failed (Warning), invalid maintenance window (Warning); *disabled by default*: no maintenance window configured (Info), updates available (Info), automatic updates disabled (Info), no updates installed for `{$PATCH.LASTUPDATE.MAXAGE}` and updates pending (Warning). All triggers have the tag `service: patch-management`.
 
 All times are sent as unix timestamps, so no time zone macros are needed. The patch day is stored in the host inventory field *Type (Full details)* and used in the trigger tag `UpdatePlan`, so you can filter problems by patch window.
 
@@ -115,7 +118,7 @@ The template contains the dashboard **Patch management**, shown for every host w
 
 | Page | Widgets |
 |------|---------|
-| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, OS, OS version / kernel, patch day, automatic updates, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems |
+| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, OS, OS version / kernel, patch day, automatic updates, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match |
 | **Categories and severity** | Pie charts of pending updates by category and by severity, stacked graphs of both (90 days) |
 | **Installs and history** | Last install run, status, installed / failed count, last update installed, last reboot; installed / failed updates per run and time since update / reboot (1 year); history of install runs, installed updates, OS version / kernel and check results |
 
@@ -171,7 +174,7 @@ The install scripts below do the whole setup on one host: install the check scri
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -IntervalHours 4
 ```
-Parameters: `-IntervalHours` (1, 2, 3, 4, 6, 8, 12, 24), `-AgentDir`, `-ZabbixServer`, `-HostName`, `-NoRun`. Creates the scheduled task *Zabbix patch check* (SYSTEM).
+Parameters: `-IntervalHours` (1, 2, 3, 4, 6, 8, 12, 24), `-AgentDir`, `-ZabbixServer`, `-HostName`, `-NoRun`, `-MaintenanceWindow`, `-Exclude`, `-Reboot`. Creates the scheduled task *Zabbix patch check* (SYSTEM) and the [patch settings](#patch-settings-maintenance-window-excluded-updates-reboot) when missing.
 
 **Linux** (as root; installs `zabbix-sender` when missing, if the Zabbix repository is configured):
 ```bash
@@ -179,13 +182,33 @@ sudo ./install-check-linux.sh
 sudo INTERVAL_HOURS=4 ./install-check-linux.sh
 curl -fsSL https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/install-check-linux.sh | sudo bash
 ```
-Environment variables: `INTERVAL_HOURS`, `RUN_NOW=0`, `INSTALL_SENDER=0`, `ZABBIX_SERVER`, `ZABBIX_HOST`. Creates `/etc/cron.d/zbx-patch-linux`.
+Environment variables: `INTERVAL_HOURS`, `RUN_NOW=0`, `INSTALL_SENDER=0`, `ZABBIX_SERVER`, `ZABBIX_HOST`, `MAINTENANCE_WINDOW`, `EXCLUDE`, `REBOOT`. Creates `/etc/cron.d/zbx-patch-linux` and the [patch settings](#patch-settings-maintenance-window-excluded-updates-reboot) when missing.
 
 **Many hosts with Ansible**: `ansible/check-windows.yml` and `ansible/check-linux.yml` do the same (the check script is downloaded on the controller, so the hosts don't need internet access):
 ```bash
 ansible-playbook -i inventory.ini ansible/check-linux.yml
 ansible-playbook -i inventory.ini ansible/check-windows.yml -e zabbix_check_interval_hours=4
 ```
+
+### Patch settings: maintenance window, excluded updates, reboot
+
+Each host can have its own settings in **`zbx-patch.conf`** – Linux `/etc/zabbix/zbx-patch.conf`, Windows `<Zabbix agent folder>\zbx-patch.conf` (the same format on both):
+
+```bash
+# when updates may be installed and the host rebooted, local time of the host, several separated by commas
+#   day: Mon..Sun, a range Mon-Fri, * = every day, 2.Sat = 2nd Saturday of the month
+#   an end lower than the start = the window ends the next day; empty = any time
+MAINTENANCE_WINDOW="Sun 02:00-05:00, 2.Sat 22:00-04:00"
+# updates that are not installed, separated by commas
+#   Linux: package names, wildcards allowed; Windows: KB number or a part of the title
+EXCLUDE="kernel*, docker-ce"
+# reboot after updates when needed: yes / no (no = the reboot is only reported)
+REBOOT="yes"
+```
+
+- The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Excluded updates*, *Reboot allowed*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
+- Your **install job** reads them with `zbx-patch-linux.sh --show-config` / `zbx-patch-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_next`, `exclude` and `reboot_allowed` – so it can install updates only in the window, skip the excluded ones and not reboot when `REBOOT="no"`.
+- The **install scripts** create the file when it's missing. Without a given window it gets **the times of the check + 2 hours** (for example `* 05:17-07:17, * 17:17-19:17`). Set the values with `MAINTENANCE_WINDOW=… EXCLUDE=… REBOOT=…` (Linux) / `-MaintenanceWindow … -Exclude … -Reboot …` (Windows) – then an existing file is overwritten. Or just edit the file; the next check sends the new values.
 
 ### Zabbix agent instead of cron / Task Scheduler (optional)
 The item *Patch - Run update check* (disabled) starts the script through the agent with the command in `{$PATCH.CHECK.CMD}` (needs `AllowKey=system.run[*]`). The default is the Linux script; on Windows hosts set the host macro to `start /low powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Zabbix Agent 2\scripts\zbx-patch-windows.ps1"`. Running the Linux script as the zabbix user can't refresh the package lists, so cron as root is recommended.

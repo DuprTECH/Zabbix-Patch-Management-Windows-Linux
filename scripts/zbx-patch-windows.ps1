@@ -41,6 +41,19 @@
     Include definition updates (Microsoft Defender) in the update history and in the last update
     date. They are installed several times a day, so they are left out by default.
 
+.PARAMETER PatchConfig
+    Patch settings of the host (default: zbx-patch.conf in the folder of the agent config).
+    The same file format as on Linux:
+      MAINTENANCE_WINDOW="Sun 02:00-05:00"     when updates may be installed and the host rebooted
+      EXCLUDE="KB5034441, Preview"              updates that are not installed (KB number or a part of the title)
+      REBOOT="yes"                              reboot after updates when needed (no = report only)
+    They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
+    patch.reboot.allowed) and read by the install job (Ansible) with -ShowConfig.
+
+.PARAMETER ShowConfig
+    Print the patch settings as JSON (window active now, next window, exclusions, reboot) and exit.
+    Nothing is checked or sent.
+
 .EXAMPLE
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File zbx-patch-windows.ps1
 
@@ -56,7 +69,9 @@ param(
     [string]$ZabbixServer = "",
     [string]$HostName     = "",
     [int]$HistoryLines    = 50,
-    [switch]$IncludeDefinitionHistory
+    [switch]$IncludeDefinitionHistory,
+    [string]$PatchConfig  = "",
+    [switch]$ShowConfig
 )
 
 $start = Get-Date
@@ -117,6 +132,100 @@ function Test-Definition($Entry) {
     return $false
 }
 
+# ---------------- Patch settings (zbx-patch.conf) ----------------
+if (-not $PatchConfig) {
+    $dir = if ($ConfigPath) { Split-Path $ConfigPath -Parent } else { "" }
+    if (-not $dir) { $dir = "C:\Program Files\Zabbix Agent 2" }
+    $PatchConfig = Join-Path $dir 'zbx-patch.conf'
+}
+
+# KEY="value" (also 'value' or value # comment); the last one wins
+$conf = @{}
+if (Test-Path $PatchConfig) {
+    foreach ($line in Get-Content $PatchConfig) {
+        if ($line -notmatch '^\s*([A-Za-z_]+)\s*=\s*(.*)$') { continue }
+        $key = $Matches[1].ToUpper(); $v = $Matches[2]
+        if ($v -match '^"([^"]*)"') { $v = $Matches[1] }
+        elseif ($v -match "^'([^']*)'") { $v = $Matches[1] }
+        else { $v = $v -replace '#.*$', '' }
+        $conf[$key] = $v.Trim()
+    }
+}
+$maintWindow   = "$($conf['MAINTENANCE_WINDOW'])"
+$excludeText   = "$($conf['EXCLUDE'])"
+$exclude       = @($excludeText -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$rebootAllowed = if ("$($conf['REBOOT'])" -match '^(no|false|0|off)$') { 0 } else { 1 }
+
+# Update excluded by EXCLUDE: KB number, or a part of the title (wildcards allowed)
+function Test-Excluded([string]$Title, [string]$Kb) {
+    foreach ($p in $exclude) { if ($Kb -eq $p -or $Title -like "*$p*") { return $true } }
+    return $false
+}
+
+# Maintenance window "<day> <HH:MM>-<HH:MM>, ..." - day: Mon, Mon-Fri, * (every day), 2.Sat (2nd Saturday
+# of the month); an end lower than the start = the next day
+function Get-Maintenance([string]$Spec) {
+    $r = @{ active = $false; next = $null; error = '' }
+    if (-not $Spec) { return $r }
+    $days = 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'
+    function DayNum($n) { for ($i = 0; $i -lt 7; $i++) { if ($days[$i] -eq $n) { return $i + 1 } }; 0 }
+    $wins = @()
+    foreach ($w in ($Spec -split ',')) {
+        $w = $w.Trim()
+        if (-not $w) { continue }
+        $ok = $w -match '^(\S+)\s+(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$'
+        if ($ok) {
+            $d = $Matches[1]; $h1 = [int]$Matches[2]; $m1 = [int]$Matches[3]; $h2 = [int]$Matches[4]; $m2 = [int]$Matches[5]
+            $ok = $h1 -le 23 -and $h2 -le 23 -and $m1 -le 59 -and $m2 -le 59
+        }
+        $nth = 0; $from = 0; $to = 0
+        if ($ok) {
+            if ($d -eq '*') { $from = 1; $to = 7 }
+            elseif ($d -match '^([1-5])\.(\w+)$') { $nth = [int]$Matches[1]; $from = $to = DayNum $Matches[2] }
+            elseif ($d -match '^(\w+)-(\w+)$') { $from = DayNum $Matches[1]; $to = DayNum $Matches[2] }
+            else { $from = $to = DayNum $d }
+            $ok = $from -gt 0 -and $to -gt 0
+        }
+        if (-not $ok) {
+            if (-not $r.error) { $r.error = "invalid maintenance window '$w'" }
+            continue
+        }
+        $wins += [pscustomobject]@{ nth = $nth; from = $from; to = $to; start = $h1 * 60 + $m1; end = $h2 * 60 + $m2 }
+    }
+    $now = Get-Date
+    for ($i = -1; $i -le 62; $i++) {
+        $day = $now.Date.AddDays($i)
+        if ($r.next -and $day -gt $r.next) { break }
+        $dow = [int]$day.DayOfWeek; if ($dow -eq 0) { $dow = 7 }
+        foreach ($w in $wins) {
+            $match = if ($w.from -le $w.to) { $dow -ge $w.from -and $dow -le $w.to } else { $dow -ge $w.from -or $dow -le $w.to }
+            if ($w.nth -and ([Math]::Floor(($day.Day - 1) / 7) + 1) -ne $w.nth) { $match = $false }
+            if (-not $match) { continue }
+            $s = $day.AddMinutes($w.start); $e = $day.AddMinutes($w.end)
+            if ($e -le $s) { $e = $e.AddDays(1) }
+            if ($now -ge $s -and $now -lt $e) { $r.active = $true }
+            if ($s -gt $now -and (-not $r.next -or $s -lt $r.next)) { $r.next = $s }
+        }
+    }
+    $r
+}
+$maint = Get-Maintenance $maintWindow
+
+if ($ShowConfig) {
+    [pscustomobject]@{
+        config             = $PatchConfig
+        config_found       = [bool](Test-Path $PatchConfig)
+        maintenance_window = $maintWindow
+        maintenance_active = $maint.active
+        maintenance_next   = if ($maint.next) { ConvertTo-Epoch $maint.next } else { $null }
+        maintenance_error  = $maint.error
+        exclude            = $exclude
+        reboot_allowed     = [bool]$rebootAllowed
+    } | ConvertTo-Json -Compress
+    exit 0
+}
+if ($maint.error) { Write-Warning "${PatchConfig}: $($maint.error)" }
+
 $counts = [ordered]@{
     all = 0; security = 0; critical = 0; bugfix = 0; enhancement = 0; definition = 0; servicepacks = 0
     updaterollups = 0; drivers = 0; upgrades = 0; kernel = 0; held = 0
@@ -127,6 +236,7 @@ $history  = New-Object System.Collections.Generic.List[string]
 $result   = "OK"
 $searchOk = 1
 $lastUpdate = $null
+$excluded = 0
 
 # ---------------- OS ----------------
 $os = Get-CimInstance Win32_OperatingSystem
@@ -158,7 +268,9 @@ try {
             $tag += " [$sev]"
         }
         $kb = if ($u.KBArticleIDs.Count -gt 0) { "KB" + $u.KBArticleIDs.Item(0) } else { "-" }
-        $list.Add((Clean "$tag $kb - $($u.Title)"))
+        $line = "$tag $kb - $($u.Title)"
+        if ($exclude.Count -gt 0 -and (Test-Excluded $u.Title $kb)) { $excluded++; $line += " (excluded)" }
+        $list.Add((Clean $line))
     }
 
     # Hidden updates (the counterpart of held / version locked packages on Linux)
@@ -245,8 +357,12 @@ $lines = @(
     "- patch.reboot.required $rebootRequired",
     "- patch.lastboot $lastBoot",
     "- patch.service.startup $startup",
-    "- patch.autoupdate $autoUpdate"
+    "- patch.autoupdate $autoUpdate",
+    "- patch.reboot.allowed $rebootAllowed",
+    "- patch.maintenance.window $(Q ($(if ($maintWindow) { $maintWindow } else { '-' }) + $(if ($maint.error) { " ($($maint.error))" })))",
+    "- patch.exclude $(Q $(if ($excludeText.Trim()) { $excludeText.Trim() } else { '-' }))"
 )
+if ($maint.next) { $lines += "- patch.maintenance.next $(ConvertTo-Epoch $maint.next)" }
 if ($lastUpdate) {
     $lines += "- patch.lastupdate.timestamp $(ConvertTo-Epoch $lastUpdate)"
     $lines += "- patch.lastupdate.patchday $(Get-PatchDay $lastUpdate)"
@@ -254,6 +370,7 @@ if ($lastUpdate) {
 if ($searchOk) {
     foreach ($k in $counts.Keys)   { $lines += "- patch.updates.$k $($counts[$k])" }
     foreach ($k in $severity.Keys) { $lines += "- patch.updates.severity.$k $($severity[$k])" }
+    $lines += "- patch.updates.excluded $excluded"
 }
 $tmp = [System.IO.Path]::GetTempFileName()
 try {
@@ -272,5 +389,7 @@ if ($searchOk) {
     Send-ToZabbix -SenderArgs @("-k", "patch.updates.list", "-o", $text)
 }
 
-Write-Output "Pending updates: $($counts.all) (critical $($counts.critical), security $($counts.security)), reboot required: $rebootRequired, result: $result"
+Write-Output "Pending updates: $($counts.all) (critical $($counts.critical), security $($counts.security), excluded $excluded), reboot required: $rebootRequired, result: $result"
+$nextText = if ($maint.next) { " (next {0:yyyy-MM-dd HH:mm})" -f $maint.next } else { "" }
+Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed"
 exit 0

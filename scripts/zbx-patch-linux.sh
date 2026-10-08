@@ -22,6 +22,18 @@
 #   ZABBIX_HOST     optional host name in Zabbix   (instead of Hostname; default uname -n
 #                   when the config has no Hostname, for example HostnameItem=system.hostname)
 #   HISTORY_LINES   number of lines in the update history item (default: 50)
+#   PATCH_CONF      patch settings of the host (default: /etc/zabbix/zbx-patch.conf)
+#
+# Patch settings (PATCH_CONF, optional, the same file format on Windows):
+#   MAINTENANCE_WINDOW="Sun 02:00-05:00"   when updates may be installed and the host rebooted
+#   EXCLUDE="kernel*, docker-ce"           packages that are not updated (wildcards allowed)
+#   REBOOT="yes"                           reboot after updates when needed (no = report only)
+# They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
+# patch.reboot.allowed) and read by the install job (Ansible) with --show-config.
+#
+# Options:
+#   --show-config   print the patch settings as JSON (window active now, next window,
+#                   exclusions, reboot) and exit - nothing is checked or sent
 #
 # Author : Dusan Priechodsky
 # Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
@@ -67,6 +79,116 @@ patchday() {
     d=$(date -d "@$1" +%-d)
     echo "$(( (d - 1) / 7 + 1 )).$(LC_ALL=C date -d "@$1" +%a)"
 }
+
+# ---------------- Patch settings (zbx-patch.conf) ----------------
+PATCH_CONF="${PATCH_CONF:-/etc/zabbix/zbx-patch.conf}"
+
+# Value of KEY="value" (also 'value' or value # comment); the last one wins
+conf_get() {
+    [ -r "$PATCH_CONF" ] || return 0
+    local v
+    v=$(sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$PATCH_CONF" | tail -n 1)
+    case "$v" in
+        \"*) v=${v#\"}; v=${v%%\"*} ;;
+        \'*) v=${v#\'}; v=${v%%\'*} ;;
+        *)   v=${v%%#*} ;;
+    esac
+    printf '%s' "$v"
+}
+
+trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+
+MAINTENANCE_WINDOW=$(trim "$(conf_get MAINTENANCE_WINDOW)")
+EXCLUDE=$(trim "$(conf_get EXCLUDE)")
+REBOOT_ALLOWED=1
+case "$(trim "$(conf_get REBOOT)" | tr '[:upper:]' '[:lower:]')" in no|false|0|off) REBOOT_ALLOWED=0 ;; esac
+
+# Exclusions: comma separated package names, wildcards allowed
+EXCL=()
+IFS=',' read -ra _excl <<< "$EXCLUDE"
+for p in "${_excl[@]}"; do p=$(trim "$p"); [ -n "$p" ] && EXCL+=("$p"); done
+
+is_excluded() {
+    local p
+    for p in "${EXCL[@]}"; do
+        # shellcheck disable=SC2053
+        [[ $1 == $p ]] && return 0
+    done
+    return 1
+}
+
+# Day of a maintenance window: Mon, Mon-Fri, * (every day), 2.Sat (2nd Saturday of the month)
+DAYS=(mon tue wed thu fri sat sun)
+day_num() {
+    local i
+    for i in 0 1 2 3 4 5 6; do [ "${DAYS[$i]}" = "${1,,}" ] && { echo $(( i + 1 )); return 0; }; done
+    return 1
+}
+# day_match <day spec> <day of week 1-7> <day of month>: 0 match, 1 no match, 2 invalid spec
+day_match() {
+    local a b
+    case "$1" in
+        '*') return 0 ;;
+        [1-5].*)
+            a=$(day_num "${1#*.}") || return 2
+            [ "$2" -eq "$a" ] && [ $(( ($3 - 1) / 7 + 1 )) -eq "${1%%.*}" ] ;;
+        *-*)
+            a=$(day_num "${1%-*}") || return 2
+            b=$(day_num "${1#*-}") || return 2
+            if [ "$a" -le "$b" ]; then [ "$2" -ge "$a" ] && [ "$2" -le "$b" ]
+            else [ "$2" -ge "$a" ] || [ "$2" -le "$b" ]; fi ;;
+        *)
+            a=$(day_num "$1") || return 2
+            [ "$2" -eq "$a" ] ;;
+    esac
+}
+
+# Maintenance window "<day> <HH:MM>-<HH:MM>, ..." (an end lower than the start = the next day)
+# Sets MAINT_ACTIVE (0 / 1), MAINT_NEXT (start of the next window, unix time) and MAINT_ERROR
+maint_eval() {
+    MAINT_ACTIVE=0; MAINT_NEXT=""; MAINT_ERROR=""
+    [ -z "$MAINTENANCE_WINDOW" ] && return 0
+    local w spec range extra now base d dow dom day0 s e i
+    local -a wins specs starts ends
+    local re='^([01]?[0-9]|2[0-3]):([0-5][0-9])-([01]?[0-9]|2[0-3]):([0-5][0-9])$'
+    IFS=',' read -ra wins <<< "$MAINTENANCE_WINDOW"
+    for w in "${wins[@]}"; do
+        read -r spec range extra <<< "$w"
+        [ -z "$spec" ] && continue
+        day_match "$spec" 1 1; [ $? -eq 2 ] && spec=""
+        if [ -z "$spec" ] || [ -n "$extra" ] || ! [[ $range =~ $re ]]; then
+            [ -z "$MAINT_ERROR" ] && MAINT_ERROR="invalid maintenance window '$(trim "$w")'"
+            continue
+        fi
+        specs+=("$spec")
+        starts+=($(( 10#${BASH_REMATCH[1]} * 60 + 10#${BASH_REMATCH[2]} )))
+        ends+=($(( 10#${BASH_REMATCH[3]} * 60 + 10#${BASH_REMATCH[4]} )))
+    done
+    now=$(date +%s); base=$(date +%F)
+    for d in $(seq -1 62); do
+        read -r dow dom day0 <<< "$(date -d "$base $d day" '+%u %-d %s')"
+        [ -n "$MAINT_NEXT" ] && [ "$day0" -gt "$MAINT_NEXT" ] && break
+        for i in "${!specs[@]}"; do
+            day_match "${specs[$i]}" "$dow" "$dom" || continue
+            s=$(( day0 + starts[i] * 60 )); e=$(( day0 + ends[i] * 60 ))
+            [ "$e" -le "$s" ] && e=$(( e + 86400 ))
+            [ "$now" -ge "$s" ] && [ "$now" -lt "$e" ] && MAINT_ACTIVE=1
+            if [ "$s" -gt "$now" ] && { [ -z "$MAINT_NEXT" ] || [ "$s" -lt "$MAINT_NEXT" ]; }; then MAINT_NEXT=$s; fi
+        done
+    done
+}
+maint_eval
+
+if [ "$1" = "--show-config" ]; then
+    printf '{"config": %s, "config_found": %s, "maintenance_window": %s, "maintenance_active": %s, ' \
+        "$(q "$PATCH_CONF")" "$([ -r "$PATCH_CONF" ] && echo true || echo false)" \
+        "$(q "$MAINTENANCE_WINDOW")" "$([ "$MAINT_ACTIVE" -eq 1 ] && echo true || echo false)"
+    printf '"maintenance_next": %s, "maintenance_error": %s, "exclude": [' "${MAINT_NEXT:-null}" "$(q "$MAINT_ERROR")"
+    sep=""; for p in "${EXCL[@]}"; do printf '%s%s' "$sep" "$(q "$p")"; sep=", "; done
+    printf '], "reboot_allowed": %s}\n' "$([ "$REBOOT_ALLOWED" -eq 1 ] && echo true || echo false)"
+    exit 0
+fi
+[ -n "$MAINT_ERROR" ] && echo "WARNING: $PATCH_CONF: $MAINT_ERROR" >&2
 
 START=$(date +%s)
 WORK=$(mktemp -d)
@@ -264,6 +386,18 @@ if [ "$REBOOT" -eq 0 ]; then
     fi
 fi
 
+# Pending updates matching EXCLUDE: counted and marked in the list (they stay in the counts)
+EXCLUDED=0
+if [ ${#EXCL[@]} -gt 0 ] && [ -n "$LIST" ]; then
+    LIST=$(set -f
+        while IFS= read -r line; do
+            name=""
+            for tok in $line; do case "$tok" in \[*) ;; *) name=${tok%%:*}; break ;; esac; done
+            if [ -n "$name" ] && is_excluded "$name"; then echo "$line (excluded)"; else echo "$line"; fi
+        done <<< "$LIST")
+    EXCLUDED=$(printf '%s\n' "$LIST" | grep -c ' (excluded)$')
+fi
+
 [ -z "$LIST" ] && LIST="No pending updates"
 [ -z "$HISTORY" ] && HISTORY="No update history found"
 [ -z "$REBOOT_REASON" ] && REBOOT_REASON="-"
@@ -282,6 +416,10 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.reboot.required $REBOOT"
     [ -n "$LASTBOOT" ] && echo "- patch.lastboot $LASTBOOT"
     echo "- patch.autoupdate $AUTOUPDATE"
+    echo "- patch.reboot.allowed $REBOOT_ALLOWED"
+    echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
+    [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"
+    echo "- patch.exclude $(q "${EXCLUDE:--}")"
     if [ -n "$LASTUPDATE" ]; then
         echo "- patch.lastupdate.timestamp $LASTUPDATE"
         echo "- patch.lastupdate.patchday $(patchday "$LASTUPDATE")"
@@ -291,6 +429,7 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
         echo "- patch.updates.security $SECURITY"
         echo "- patch.updates.kernel $KERNEL"
         echo "- patch.updates.held $HELD"
+        echo "- patch.updates.excluded $EXCLUDED"
         [ -n "$CRITICAL" ]      && echo "- patch.updates.critical $CRITICAL"
         [ -n "$BUGFIX" ]        && echo "- patch.updates.bugfix $BUGFIX"
         [ -n "$ENHANCEMENT" ]   && echo "- patch.updates.enhancement $ENHANCEMENT"
@@ -311,5 +450,6 @@ send -k patch.reboot.reason -o "$REBOOT_REASON"
 send -k patch.history -o "$HISTORY"
 [ "$CHECK_OK" -eq 1 ] && send -k patch.updates.list -o "$LIST"
 
-echo "$OS_NAME: pending $ALL (security $SECURITY, critical ${CRITICAL:-n/a}, kernel $KERNEL), reboot required: $REBOOT, result: $RESULT"
+echo "$OS_NAME: pending $ALL (security $SECURITY, critical ${CRITICAL:-n/a}, kernel $KERNEL, excluded $EXCLUDED), reboot required: $REBOOT, result: $RESULT"
+echo "Maintenance window: ${MAINTENANCE_WINDOW:--}${MAINT_NEXT:+ (next $(date -d "@$MAINT_NEXT" '+%Y-%m-%d %H:%M'))}, exclude: ${EXCLUDE:--}, reboot allowed: $REBOOT_ALLOWED"
 exit 0

@@ -32,9 +32,22 @@
 .PARAMETER NoRun
     Install only, don't run the check now.
 
+.PARAMETER MaintenanceWindow
+    Patch settings <Zabbix agent folder>\zbx-patch.conf (created when missing, overwritten when
+    -MaintenanceWindow, -Exclude or -Reboot is given; see the comments in the file):
+    when updates may be installed, for example "Sun 02:00-05:00"
+    (default: the times of the scheduled task + 2 hours).
+
+.PARAMETER Exclude
+    Updates that are not installed, for example "KB5034441, Preview" (KB number or a part of the title).
+
+.PARAMETER Reboot
+    Reboot after updates when needed: yes / no (default: yes).
+
 .EXAMPLE
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -IntervalHours 4
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File install-check-windows.ps1 -MaintenanceWindow "Sat 22:00-04:00" -Exclude "Preview"
 
 .NOTES
     Author : Dusan Priechodsky
@@ -48,7 +61,11 @@ param(
     [string]$AgentDir = "",
     [string]$ZabbixServer = "",
     [string]$HostName = "",
-    [switch]$NoRun
+    [switch]$NoRun,
+    [string]$MaintenanceWindow,
+    [string]$Exclude,
+    [ValidateSet('yes', 'no')]
+    [string]$Reboot
 )
 $ErrorActionPreference = 'Stop'
 $Url      = 'https://raw.githubusercontent.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux/main/scripts/zbx-patch-windows.ps1'
@@ -94,7 +111,43 @@ $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Force | Out-Null
 Write-Output ("Scheduled task '{0}': every {1} h, offset {2} min" -f $TaskName, $IntervalHours, $offset)
 
-# 4. Run the check now
+# 4. Patch settings: created when missing, overwritten when a setting is given
+$patchConf = Join-Path $AgentDir 'zbx-patch.conf'
+$given = $PSBoundParameters.ContainsKey('MaintenanceWindow') -or $PSBoundParameters.ContainsKey('Exclude') -or $PSBoundParameters.ContainsKey('Reboot')
+if (-not (Test-Path $patchConf) -or $given) {
+    if (-not $PSBoundParameters.ContainsKey('MaintenanceWindow')) {
+        # Default window: every time of the scheduled task + 2 hours
+        $MaintenanceWindow = (@($triggers | ForEach-Object {
+            $t = [datetime]$_.StartBoundary
+            '* {0:HH:mm}-{1:HH:mm}' -f $t, $t.AddHours(2)
+        }) -join ', ')
+    }
+    if (-not $Reboot) { $Reboot = 'yes' }
+    @"
+# zbx-patch.conf - patch management settings of this host
+# Read by the check script zbx-patch-windows.ps1 (sent to Zabbix, template 'APP Patch management all OS')
+# and by the install job (Ansible playbook, your update script, ...).
+#
+# Maintenance window - when updates may be installed and the host rebooted.
+#   "<day> <HH:MM>-<HH:MM>", several separated by commas, local time of the host
+#   day: Mon..Sun, a range Mon-Fri, * = every day, 2.Sat = 2nd Saturday of the month
+#   an end lower than the start = the window ends the next day (Sat 22:00-04:00)
+#   empty = any time
+MAINTENANCE_WINDOW="$MaintenanceWindow"
+
+# Updates that are not installed, separated by commas: KB number or a part of the title
+#   EXCLUDE="KB5034441, Preview"
+EXCLUDE="$Exclude"
+
+# Reboot after updates when needed: yes / no (no = the reboot is only reported to Zabbix)
+REBOOT="$Reboot"
+"@ | Set-Content -Path $patchConf -Encoding ASCII
+    Write-Output "Patch settings ${patchConf}: window '$MaintenanceWindow', exclude '$Exclude', reboot $Reboot"
+} else {
+    Write-Output "Patch settings ${patchConf}: kept (use -MaintenanceWindow / -Exclude / -Reboot to overwrite)"
+}
+
+# 5. Run the check now
 if (-not $NoRun) {
     Write-Output "Running the check (the update search can take a few minutes) ..."
     $params = @{ SenderPath = $sender; ConfigPath = $conf.FullName }

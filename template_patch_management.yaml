@@ -17,6 +17,8 @@ zabbix_export:
         - Last update installed (detected on the host) and its patch day, last install run (sent by the install job / Ansible)
         - OS name and version / kernel, update source and its availability, automatic updates, Windows Update service
         - Last check time, age, duration and result
+        - Patch settings of the host (zbx-patch.conf): maintenance window and the next window, excluded updates
+          (and how many pending updates they match), reboot allowed
         - Host dashboard 'Patch management': overview, categories and severity, installs and history
 
         Data are sent with zabbix_sender (trapper items) by the check scripts zbx-patch-windows.ps1 and zbx-patch-linux.sh,
@@ -728,6 +730,96 @@ zabbix_export:
           tags:
             - tag: component
               value: install
+        - uuid: ffb64cc7f5684d3db0748389742c0dbd
+          name: 'Patch - Maintenance window'
+          type: TRAP
+          key: patch.maintenance.window
+          history: 365d
+          value_type: CHAR
+          trends: '0'
+          description: |
+            MAINTENANCE_WINDOW from the patch settings of the host (zbx-patch.conf): when updates may be installed and the host rebooted,
+            for example "Sun 02:00-05:00" or "* 05:12-07:12, 2.Sat 22:00-04:00". "-" = not set (any time).
+            An invalid window is sent with the error in brackets.
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          tags:
+            - tag: component
+              value: maintenance
+          triggers:
+            - uuid: 63dbdcea11774c53896b47ba7335df46
+              expression: 'last(/APP Patch management all OS/patch.maintenance.window)="-"'
+              name: 'No maintenance window configured'
+              status: DISABLED
+              priority: INFO
+              description: 'Set MAINTENANCE_WINDOW in zbx-patch.conf on the host.'
+              tags:
+                - tag: service
+                  value: patch-management
+                - tag: scope
+                  value: notice
+            - uuid: b41743c07d674c97a68914da99090654
+              expression: 'find(/APP Patch management all OS/patch.maintenance.window,,"like","invalid maintenance window")=1'
+              name: 'Invalid maintenance window in zbx-patch.conf'
+              priority: WARNING
+              description: 'The install job doesn''t install updates on this host until the window is fixed.'
+              tags:
+                - tag: service
+                  value: patch-management
+                - tag: scope
+                  value: notice
+        - uuid: ceca732be9b74adea5b91bfab7489265
+          name: 'Patch - Next maintenance window'
+          type: TRAP
+          key: patch.maintenance.next
+          history: 90d
+          trends: '0'
+          units: unixtime
+          description: 'Start of the next maintenance window (local time of the host). Not sent when no window is set.'
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: 153552099b624c24a0fd216f240a6c5b
+          name: 'Patch - Reboot allowed'
+          type: TRAP
+          key: patch.reboot.allowed
+          history: 90d
+          trends: 365d
+          description: 'REBOOT from the patch settings of the host (zbx-patch.conf): 1 - the install job may reboot the host, 0 - it only reports the reboot.'
+          valuemap:
+            name: Enabled
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: 9157fc5c931649d2814242ba4a8cd953
+          name: 'Patch - Excluded updates (config)'
+          type: TRAP
+          key: patch.exclude
+          history: 365d
+          value_type: TEXT
+          trends: '0'
+          description: |
+            EXCLUDE from the patch settings of the host (zbx-patch.conf): updates the install job doesn't install. "-" = none.
+            Linux: package names, wildcards allowed (kernel*, docker-ce). Windows: KB number or a part of the title (KB5034441, Preview).
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: aa17a69b3a67474fb20ffe449bd89b0c
+          name: 'Patch - Updates: Excluded'
+          type: TRAP
+          key: patch.updates.excluded
+          history: 90d
+          trends: 365d
+          description: 'Pending updates that match EXCLUDE (they are not installed). They are included in the other counts and marked "(excluded)" in the pending updates list.'
+          tags:
+            - tag: component
+              value: updates
       dashboards:
         - uuid: 9a18e36191fa474480805734737206a8
           name: 'Patch management'
@@ -1293,6 +1385,101 @@ zabbix_export:
                     - type: STRING
                       name: tags.0.value
                       value: 'patch-management'
+                - type: item
+                  name: 'Maintenance window'
+                  'y': '25'
+                  width: '24'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.maintenance.window
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Next maintenance window'
+                  x: '24'
+                  'y': '25'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.maintenance.next
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Reboot allowed'
+                  x: '36'
+                  'y': '25'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.reboot.allowed
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Excluded (config)'
+                  x: '48'
+                  'y': '25'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.exclude
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Pending excluded'
+                  x: '60'
+                  'y': '25'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.updates.excluded
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: decimal_places
+                      value: '0'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: 'F9A825'
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '1'
             - name: 'Categories and severity'
               widgets:
                 - type: piechart
