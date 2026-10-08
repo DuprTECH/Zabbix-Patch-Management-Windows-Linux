@@ -12,8 +12,8 @@
       patch.updates.list, patch.history (recent update history, like a log)
       patch.reboot.required, patch.reboot.reason, patch.lastboot
       patch.lastupdate.timestamp, patch.lastupdate.patchday
-      patch.os, patch.os.name, patch.os.version, patch.source, patch.source.available
-      patch.service.startup, patch.autoupdate, patch.autoupdate.config
+      patch.os, patch.os.name, patch.os.version, patch.source (Windows Update / WSUS <server>), patch.source.available
+      patch.service.startup, patch.autoupdate (0-4), patch.autoupdate.detail, patch.autoupdate.config
       patch.check.timestamp, patch.check.duration, patch.check.result
     Values that don't exist on Windows (kernel) are sent as 0.
 
@@ -459,22 +459,56 @@ switch ($svc.Start) {
     3 { $startup = 2 }
     4 { $startup = 3 }
 }
-# Automatic updates: 0 disabled, 2 OS installs all updates (no policy = Windows default, or policy "Auto download
-# and schedule the install"), 3 patch management (AUTO_UPDATE="true" in zbx-patch.conf - this script installs
-# the updates), 4 OS + patch management. 1 (OS security only) is used on Linux only.
+# Automatic updates: 0 disabled (nothing is installed automatically), 2 OS installs all updates,
+# 3 patch management (AUTO_UPDATE="true" in zbx-patch.conf - this script installs the updates),
+# 4 OS + patch management. 1 (OS security only) is used on Linux only.
+# The policy (GPO / registry): NoAutoUpdate, AUOptions 2 notify, 3 download only, 4 download and install,
+# 5 local admin chooses, 7 download only and notify (Server 2016+). Without a policy: Windows client installs
+# automatically, Windows Server is counted as no automatic install. WSUS installs only approved updates.
+$wuPol  = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' -ErrorAction SilentlyContinue
+$auPol  = Get-ItemProperty 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -ErrorAction SilentlyContinue
+$wsus   = if ($auPol.UseWUServer -eq 1 -and $wuPol.WUServer) { "$($wuPol.WUServer)" } else { '' }
+$level  = $null
+try { $level = (New-Object -ComObject Microsoft.Update.AutoUpdate).Settings.NotificationLevel } catch {}
+$isServer = $os.ProductType -ne 1
 $autoUpdate = 0
-try {
-    $level = (New-Object -ComObject Microsoft.Update.AutoUpdate).Settings.NotificationLevel
-    if ($startup -ne 3 -and $level -in 0, 4) { $autoUpdate = 2 }
-} catch {}
-if ($autoInstall) { $autoUpdate = if ($autoUpdate -gt 0) { 4 } else { 3 } }
+if ($startup -eq 3) {
+    $autoDetail = 'service wuauserv disabled'
+} elseif ($auPol.NoAutoUpdate -eq 1) {
+    $autoDetail = 'disabled by policy (NoAutoUpdate=1)'
+} elseif ($null -ne $auPol.AUOptions) {
+    switch ([int]$auPol.AUOptions) {
+        2 { $autoDetail = 'notify before download (AUOptions 2)' }
+        3 { $autoDetail = 'download only, notify to install (AUOptions 3)' }
+        4 { $autoDetail = 'download and install automatically (AUOptions 4)'; $autoUpdate = 2 }
+        5 {
+            $autoDetail = 'local admin chooses (AUOptions 5)'
+            if ($level -eq 4) { $autoDetail += ': install automatically'; $autoUpdate = 2 }
+        }
+        7 { $autoDetail = 'download only, notify to install and restart (AUOptions 7)' }
+        default { $autoDetail = "policy AUOptions $($auPol.AUOptions)" }
+    }
+} elseif ($level -eq 4 -or ($level -in $null, 0 -and -not $isServer)) {
+    $autoDetail = 'not configured: Windows installs automatically'; $autoUpdate = 2
+} elseif ($level -in 1, 2, 3) {
+    $autoDetail = "not configured by policy: $(@{1 = 'disabled'; 2 = 'notify before download'; 3 = 'download only'}[[int]$level])"
+} else {
+    $autoDetail = 'not configured (Windows Server: no automatic install)'
+}
+$autoDetail = "Windows Update: $autoDetail"
+if ($wsus) { $autoDetail += "; WSUS $wsus (approved updates only)" }
+if ($autoInstall) {
+    $autoUpdate = if ($autoUpdate -gt 0) { 4 } else { 3 }
+    $autoDetail = "Patch management (AUTO_UPDATE in zbx-patch.conf, window '$maintWindow'); $autoDetail"
+}
+$source = if ($wsus) { "WSUS $wsus" } else { 'Windows Update' }
 
 # ---------------- Send ----------------
 $lines = @(
     "- patch.os Windows",
     "- patch.os.name $(Q $os.Caption.Trim())",
     "- patch.os.version $(Q $osVersion)",
-    "- patch.source $(Q 'Windows Update')",
+    "- patch.source $(Q $source)",
     "- patch.source.available $searchOk",
     "- patch.check.timestamp $(ConvertTo-Epoch (Get-Date))",
     "- patch.check.duration $([int]((Get-Date) - $start).TotalSeconds)",
@@ -483,6 +517,7 @@ $lines = @(
     "- patch.lastboot $lastBoot",
     "- patch.service.startup $startup",
     "- patch.autoupdate $autoUpdate",
+    "- patch.autoupdate.detail $(Q $autoDetail)",
     # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (-AutoUpdate task)
     "- patch.autoupdate.config $autoInstall",
     "- patch.reboot.allowed $rebootAllowed",

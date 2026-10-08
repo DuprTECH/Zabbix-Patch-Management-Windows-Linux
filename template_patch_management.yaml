@@ -169,7 +169,7 @@ zabbix_export:
           history: 30d
           value_type: CHAR
           trends: '0'
-          description: 'Windows: Windows Update. Linux: package manager (apt, dnf, yum).'
+          description: 'Windows: Windows Update, or WSUS <server> when the policy UseWUServer is set. Linux: package manager (apt, dnf, yum).'
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
@@ -211,11 +211,12 @@ zabbix_export:
           history: 90d
           trends: 365d
           description: |
-            How updates are installed automatically:
-            0 - disabled (nothing installs updates automatically)
+            How updates are installed automatically (the exact setting is in "Patch - Automatic updates detail"):
+            0 - disabled, nothing installs updates automatically (Windows: also notify / download only - AUOptions 2, 3, 7,
+                NoAutoUpdate=1, the service disabled, or no policy on Windows Server)
             1 - OS, security updates only (Linux: unattended-upgrades with the default security origins, dnf-automatic upgrade_type = security, yum-cron update_cmd = security)
-            2 - OS, all updates (Linux: unattended-upgrades with the -updates origin, dnf-automatic / yum-cron default; Windows: automatic updates policy
-                not configured or "auto download and schedule the install" and the service is not disabled)
+            2 - OS, all updates (Linux: unattended-upgrades with the -updates origin, dnf-automatic / yum-cron default;
+                Windows: policy AUOptions 4 "download and install", or no policy on a Windows client; with WSUS only the approved updates)
             3 - patch management: AUTO_UPDATE="true" in zbx-patch.conf, the check script installs the updates in the maintenance window
             4 - OS and patch management both - choose one of them
           valuemap:
@@ -244,6 +245,25 @@ zabbix_export:
                   value: patch-management
                 - tag: scope
                   value: notice
+        - uuid: bc42cfa332c14978b10113dc377fe8da
+          name: 'Patch - Automatic updates detail'
+          type: TRAP
+          key: patch.autoupdate.detail
+          history: 90d
+          value_type: TEXT
+          trends: '0'
+          description: |
+            The exact automatic update setting of the host, for example:
+            Windows Update: download only, notify to install (AUOptions 3); WSUS http://wsus:8530 (approved updates only)
+            unattended-upgrades: security updates only
+            Patch management (AUTO_UPDATE in zbx-patch.conf, window '3 03:00-05:00'); Windows Update: disabled by policy (NoAutoUpdate=1)
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 1d
+          tags:
+            - tag: component
+              value: system
         - uuid: f389c08f0dee49bf88123d245dac5397
           name: 'Patch - Windows Update service startup type'
           type: TRAP
@@ -1147,7 +1167,7 @@ zabbix_export:
                       name: itemid.0
                       value:
                         host: 'APP Patch management all OS'
-                        key: patch.autoupdate
+                        key: patch.autoupdate.detail
                     - type: INTEGER
                       name: show.0
                       value: '2'
