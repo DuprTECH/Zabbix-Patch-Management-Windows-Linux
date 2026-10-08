@@ -211,10 +211,10 @@ zabbix_export:
           history: 90d
           trends: 365d
           description: |
-            Updates are installed automatically (1) or not (0).
+            Updates are installed automatically by the OS (1) or not (0).
             Windows: automatic updates policy (not configured or "auto download and schedule the install") and the service is not disabled.
             Linux: unattended-upgrades (apt), dnf-automatic with apply_updates, yum-cron with apply_updates.
-            Both: AUTO_UPDATE="true" in zbx-patch.conf - the check script installs the updates itself in the maintenance window.
+            Automatic updates by the check script (AUTO_UPDATE in zbx-patch.conf) are in the item "Patch - Auto update (zbx-patch.conf)".
           valuemap:
             name: Enabled
           tags:
@@ -790,6 +790,21 @@ zabbix_export:
           history: 90d
           trends: 365d
           description: 'REBOOT from the patch settings of the host (zbx-patch.conf): 1 - the install job may reboot the host, 0 - it only reports the reboot.'
+          valuemap:
+            name: Enabled
+          tags:
+            - tag: component
+              value: maintenance
+        - uuid: ad3c2ba3f80541e58cde01e4cc0b6876
+          name: 'Patch - Auto update (zbx-patch.conf)'
+          type: TRAP
+          key: patch.autoupdate.config
+          history: 90d
+          trends: 365d
+          description: |
+            AUTO_UPDATE from the patch settings of the host (zbx-patch.conf):
+            1 - the check script installs the updates itself in the maintenance window (once per window, cron / task every 15 min),
+            0 - check only (default). The result of the install runs goes to the "Patch install" items.
           valuemap:
             name: Enabled
           tags:
@@ -1390,7 +1405,7 @@ zabbix_export:
                 - type: item
                   name: 'Maintenance window'
                   'y': '25'
-                  width: '24'
+                  width: '12'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -1404,6 +1419,30 @@ zabbix_export:
                     - type: INTEGER
                       name: value_size
                       value: '20'
+                - type: item
+                  name: 'Auto update (config)'
+                  x: '12'
+                  'y': '25'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.autoupdate.config
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                    - type: STRING
+                      name: thresholds.0.color
+                      value: '5E35B1'
+                    - type: STRING
+                      name: thresholds.0.threshold
+                      value: '1'
                 - type: item
                   name: 'Next maintenance window'
                   x: '24'

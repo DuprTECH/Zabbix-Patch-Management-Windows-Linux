@@ -32,7 +32,7 @@
 #   EXCLUDE="kernel*, docker-ce"           packages that are not updated (wildcards allowed)
 #   REBOOT="yes"                           reboot after updates when needed (no = report only)
 # They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
-# patch.reboot.allowed, patch.autoupdate) and read by the install job (Ansible) with --show-config.
+# patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with --show-config.
 #
 # Options:
 #   --show-config   print the patch settings as JSON (window active now, next window,
@@ -548,8 +548,9 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.check.result $(q "$RESULT")"
     echo "- patch.reboot.required $REBOOT"
     [ -n "$LASTBOOT" ] && echo "- patch.lastboot $LASTBOOT"
-    # AUTO_UPDATE="true" in zbx-patch.conf = this script installs the updates (--auto-update)
-    echo "- patch.autoupdate $(( AUTOUPDATE | AUTO_UPDATE ))"
+    echo "- patch.autoupdate $AUTOUPDATE"
+    # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (--auto-update)
+    echo "- patch.autoupdate.config $AUTO_UPDATE"
     echo "- patch.reboot.allowed $REBOOT_ALLOWED"
     echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
     [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"

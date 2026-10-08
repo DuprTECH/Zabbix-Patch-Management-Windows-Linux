@@ -76,11 +76,12 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Last update installed / age / patch day | `patch.lastupdate.timestamp`, `.age`, `.patchday` | detected on the host | detected on the host |
 | OS family / name / version | `patch.os`, `patch.os.name`, `patch.os.version` | build with UBR | distribution, running kernel |
 | Update source / availability | `patch.source`, `patch.source.available` | Windows Update, search succeeded | package manager, repositories reachable |
-| Automatic updates | `patch.autoupdate` | automatic updates policy | unattended-upgrades, dnf-automatic, yum-cron |
+| Automatic updates (OS) | `patch.autoupdate` | automatic updates policy | unattended-upgrades, dnf-automatic, yum-cron |
 | Windows Update service startup type | `patch.service.startup` | ✔ | not sent |
 | Last check time / age / duration / result | `patch.check.timestamp`, `.age`, `.duration`, `.result` | ✔ | ✔ |
 | Install run: time, age, status, result, count, failed, list | `patch.install.timestamp`, `.age`, `.status`, `.result`, `.count`, `.failed`, `.list` | install job, Ansible | install job, Ansible |
 | Maintenance window / next window | `patch.maintenance.window`, `patch.maintenance.next` | `zbx-patch.conf` | `zbx-patch.conf` |
+| Auto update by the check script | `patch.autoupdate.config` | `AUTO_UPDATE` in `zbx-patch.conf` | `AUTO_UPDATE` in `zbx-patch.conf` |
 | Excluded updates (config) / pending excluded | `patch.exclude`, `patch.updates.excluded` | KB or a part of the title | package names (wildcards) |
 | Reboot allowed | `patch.reboot.allowed` | `zbx-patch.conf` | `zbx-patch.conf` |
 
@@ -208,7 +209,7 @@ EXCLUDE="kernel*, docker-ce"
 REBOOT="yes"
 ```
 
-- The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Excluded updates*, *Reboot allowed*, *Automatic updates*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
+- The **check scripts** send the settings to Zabbix (*Maintenance window*, *Next maintenance window*, *Auto update (zbx-patch.conf)*, *Excluded updates*, *Reboot allowed*) and mark the pending updates that match `EXCLUDE` with `(excluded)` (count in *Updates: Excluded*).
 - **Automatic updates** (`AUTO_UPDATE="true"`): the check script is also started every 15 minutes with `--auto-update` / `-AutoUpdate` (cron / task *Zabbix patch auto update*). Outside the window (or with `false`) it exits right away; in an open window it installs the updates once per window (Linux apt / dnf / yum, Windows Update: security, critical, update rollups, definitions, updates), without `EXCLUDE`, sends the result to the `patch.install.*` items, reboots when needed and `REBOOT="yes"` and checks again after the reboot. Log: `/var/log/zbx-patch-update.log`, `C:\ProgramData\zbx-patch\update.log`.
 - **Install now by hand**: `zbx-patch-linux.sh --update` / `zbx-patch-windows.ps1 -Update` (only in the window, with `--force` / `-Force` also outside).
 - Your **install job** reads the settings with `zbx-patch-linux.sh --show-config` / `zbx-patch-windows.ps1 -ShowConfig` – JSON with `maintenance_active` (the window is open now), `maintenance_next`, `exclude`, `reboot_allowed` and `auto_update`.

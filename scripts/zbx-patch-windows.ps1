@@ -13,7 +13,7 @@
       patch.reboot.required, patch.reboot.reason, patch.lastboot
       patch.lastupdate.timestamp, patch.lastupdate.patchday
       patch.os, patch.os.name, patch.os.version, patch.source, patch.source.available
-      patch.service.startup, patch.autoupdate
+      patch.service.startup, patch.autoupdate, patch.autoupdate.config
       patch.check.timestamp, patch.check.duration, patch.check.result
     Values that don't exist on Windows (kernel) are sent as 0.
 
@@ -51,7 +51,7 @@
       EXCLUDE="KB5034441, Preview"              updates that are not installed (KB number or a part of the title)
       REBOOT="yes"                              reboot after updates when needed (no = report only)
     They are sent to Zabbix (patch.maintenance.*, patch.exclude, patch.updates.excluded,
-    patch.reboot.allowed, patch.autoupdate) and read by the install job (Ansible) with -ShowConfig.
+    patch.reboot.allowed, patch.autoupdate.config) and read by the install job (Ansible) with -ShowConfig.
 
 .PARAMETER ShowConfig
     Print the patch settings as JSON (window active now, next window, exclusions, reboot, auto update)
@@ -465,8 +465,6 @@ try {
     $level = (New-Object -ComObject Microsoft.Update.AutoUpdate).Settings.NotificationLevel
     if ($startup -ne 3 -and $level -in 0, 4) { $autoUpdate = 1 }
 } catch {}
-# AUTO_UPDATE="true" in zbx-patch.conf = this script installs the updates (-AutoUpdate task)
-if ($autoInstall) { $autoUpdate = 1 }
 
 # ---------------- Send ----------------
 $lines = @(
@@ -482,6 +480,8 @@ $lines = @(
     "- patch.lastboot $lastBoot",
     "- patch.service.startup $startup",
     "- patch.autoupdate $autoUpdate",
+    # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (-AutoUpdate task)
+    "- patch.autoupdate.config $autoInstall",
     "- patch.reboot.allowed $rebootAllowed",
     "- patch.maintenance.window $(Q ($(if ($maintWindow) { $maintWindow } else { '-' }) + $(if ($maint.error) { " ($($maint.error))" })))",
     "- patch.exclude $(Q $(if ($excludeText.Trim()) { $excludeText.Trim() } else { '-' }))"
