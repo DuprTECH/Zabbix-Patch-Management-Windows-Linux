@@ -110,7 +110,7 @@ The **global dashboard of all hosts is not part of this repository** and is not 
 | [![Global dashboard – overview](images/global_dashboard_1.png)](images/global_dashboard_1.png) | [![Global dashboard – all hosts](images/global_dashboard_2.png)](images/global_dashboard_2.png) | [![Global dashboard – reboot and installs](images/global_dashboard_3.png)](images/global_dashboard_3.png) |
 
 - **Overview**: hosts, compliance, hosts with pending / security / critical updates, reboot required, failed installs, no data, pending updates totals, hosts not updated for 45+ days, automatic updates off, update source down, average uptime and time since update; hosts by OS, update compliance, honeycomb of hosts by pending security updates; 1 year trends; patch management problems
-- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, patch day, automatic updates, update source, last check, check and install result
+- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, automatic updates (0 disabled … 3 patch management, colored), update source, last check, check and install result, maintenance window, next window, excluded updates
 - **Reboot and installs**: longest uptime with the reboot reason, longest without installed updates, results of the last install runs
 
 ### Host dashboard pages
@@ -119,7 +119,7 @@ The template contains the dashboard **Patch management**, shown for every host w
 
 | Page | Widgets |
 |------|---------|
-| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, OS, OS version / kernel, patch day, automatic updates, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match |
+| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, OS, OS version / kernel, maintenance window, automatic updates, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match |
 | **Categories and severity** | Pie charts of pending updates by category and by severity, stacked graphs of both (90 days) |
 | **Installs and history** | Last install run, status, installed / failed count, last update installed, last reboot; installed / failed updates per run and time since update / reboot (1 year); history of install runs, installed updates, OS version / kernel and check results |
 

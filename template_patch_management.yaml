@@ -1116,7 +1116,7 @@ zabbix_export:
                       name: value_size
                       value: '20'
                 - type: item
-                  name: 'Patch day'
+                  name: 'Maintenance window'
                   x: '24'
                   'y': '3'
                   width: '12'
@@ -1126,7 +1126,7 @@ zabbix_export:
                       name: itemid.0
                       value:
                         host: 'APP Patch management all OS'
-                        key: patch.lastupdate.patchday
+                        key: patch.maintenance.window
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -1416,27 +1416,9 @@ zabbix_export:
                       name: tags.0.value
                       value: 'patch-management'
                 - type: item
-                  name: 'Maintenance window'
-                  'y': '25'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value:
-                        host: 'APP Patch management all OS'
-                        key: patch.maintenance.window
-                    - type: INTEGER
-                      name: show.0
-                      value: '2'
-                    - type: INTEGER
-                      name: value_size
-                      value: '20'
-                - type: item
                   name: 'Auto update (config)'
-                  x: '12'
                   'y': '25'
-                  width: '12'
+                  width: '24'
                   height: '3'
                   fields:
                     - type: ITEM
