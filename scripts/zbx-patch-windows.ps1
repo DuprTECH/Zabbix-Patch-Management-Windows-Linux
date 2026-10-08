@@ -459,12 +459,15 @@ switch ($svc.Start) {
     3 { $startup = 2 }
     4 { $startup = 3 }
 }
-# 1 = updates are installed automatically (no policy = Windows default, or policy "Auto download and schedule the install")
+# Automatic updates: 0 disabled, 2 OS installs all updates (no policy = Windows default, or policy "Auto download
+# and schedule the install"), 3 patch management (AUTO_UPDATE="true" in zbx-patch.conf - this script installs
+# the updates), 4 OS + patch management. 1 (OS security only) is used on Linux only.
 $autoUpdate = 0
 try {
     $level = (New-Object -ComObject Microsoft.Update.AutoUpdate).Settings.NotificationLevel
-    if ($startup -ne 3 -and $level -in 0, 4) { $autoUpdate = 1 }
+    if ($startup -ne 3 -and $level -in 0, 4) { $autoUpdate = 2 }
 } catch {}
+if ($autoInstall) { $autoUpdate = if ($autoUpdate -gt 0) { 4 } else { 3 } }
 
 # ---------------- Send ----------------
 $lines = @(

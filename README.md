@@ -76,7 +76,7 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Last update installed / age / patch day | `patch.lastupdate.timestamp`, `.age`, `.patchday` | detected on the host | detected on the host |
 | OS family / name / version | `patch.os`, `patch.os.name`, `patch.os.version` | build with UBR | distribution, running kernel |
 | Update source / availability | `patch.source`, `patch.source.available` | Windows Update, search succeeded | package manager, repositories reachable |
-| Automatic updates (OS) | `patch.autoupdate` | automatic updates policy | unattended-upgrades, dnf-automatic, yum-cron |
+| Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management (`AUTO_UPDATE`), 4 OS + patch management | `patch.autoupdate` | automatic updates policy (2), `AUTO_UPDATE` (3) | unattended-upgrades, dnf-automatic, yum-cron (1 / 2), `AUTO_UPDATE` (3) |
 | Windows Update service startup type | `patch.service.startup` | ✔ | not sent |
 | Last check time / age / duration / result | `patch.check.timestamp`, `.age`, `.duration`, `.result` | ✔ | ✔ |
 | Install run: time, age, status, result, count, failed, list | `patch.install.timestamp`, `.age`, `.status`, `.result`, `.count`, `.failed`, `.list` | install job, Ansible | install job, Ansible |

@@ -211,12 +211,15 @@ zabbix_export:
           history: 90d
           trends: 365d
           description: |
-            Updates are installed automatically by the OS (1) or not (0).
-            Windows: automatic updates policy (not configured or "auto download and schedule the install") and the service is not disabled.
-            Linux: unattended-upgrades (apt), dnf-automatic with apply_updates, yum-cron with apply_updates.
-            Automatic updates by the check script (AUTO_UPDATE in zbx-patch.conf) are in the item "Patch - Auto update (zbx-patch.conf)".
+            How updates are installed automatically:
+            0 - disabled (nothing installs updates automatically)
+            1 - OS, security updates only (Linux: unattended-upgrades with the default security origins, dnf-automatic upgrade_type = security, yum-cron update_cmd = security)
+            2 - OS, all updates (Linux: unattended-upgrades with the -updates origin, dnf-automatic / yum-cron default; Windows: automatic updates policy
+                not configured or "auto download and schedule the install" and the service is not disabled)
+            3 - patch management: AUTO_UPDATE="true" in zbx-patch.conf, the check script installs the updates in the maintenance window
+            4 - OS and patch management both - choose one of them
           valuemap:
-            name: Enabled
+            name: 'Automatic updates'
           tags:
             - tag: component
               value: system
@@ -226,6 +229,16 @@ zabbix_export:
               name: 'Automatic updates are disabled'
               status: DISABLED
               priority: INFO
+              tags:
+                - tag: service
+                  value: patch-management
+                - tag: scope
+                  value: notice
+            - uuid: 6bb51f7116b44fad9677ff758062d3a3
+              expression: 'last(/APP Patch management all OS/patch.autoupdate)=4'
+              name: 'Updates are installed automatically by the OS and by patch management'
+              priority: WARNING
+              description: 'AUTO_UPDATE="true" in zbx-patch.conf and the automatic updates of the OS are both enabled - disable one of them (onboarding disables the OS automatic updates).'
               tags:
                 - tag: service
                   value: patch-management
@@ -2231,6 +2244,19 @@ zabbix_export:
           value: 7d
           description: 'Alert when a reboot is pending for this time'
       valuemaps:
+        - uuid: 22255060312d4e1cb6b763f10fedbb5e
+          name: 'Automatic updates'
+          mappings:
+            - value: '0'
+              newvalue: Disabled
+            - value: '1'
+              newvalue: 'OS security'
+            - value: '2'
+              newvalue: 'OS all'
+            - value: '3'
+              newvalue: 'Patch management'
+            - value: '4'
+              newvalue: 'OS + Patch management'
         - uuid: edf4ad98a0354869a98a9ce9b7b133a9
           name: Availability
           mappings:

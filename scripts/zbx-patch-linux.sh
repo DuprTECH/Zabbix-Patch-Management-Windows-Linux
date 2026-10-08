@@ -373,9 +373,12 @@ if command -v apt-get >/dev/null 2>&1; then
             REBOOT_REASON="Packages: $(sort -u /var/run/reboot-required.pkgs | tr '\n' ' ')"
     fi
 
+    # unattended-upgrades: 1 = security only (the default origins), 2 = also the -updates origin
     if dpkg-query -W -f='${Status}' unattended-upgrades 2>/dev/null | grep -q 'install ok installed' \
        && apt-config dump 2>/dev/null | grep -qE '^APT::Periodic::Unattended-Upgrade "(1|always)"'; then
         AUTOUPDATE=1
+        apt-config dump 2>/dev/null | grep -E '^Unattended-Upgrade::(Origins-Pattern|Allowed-Origins)' \
+            | grep -qE -- '-updates' && AUTOUPDATE=2
     fi
 
     # History from /var/log/apt/history.log (+ the last rotated logs), oldest first
@@ -485,17 +488,25 @@ elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
         REBOOT_REASON="Updated: ${REBOOT_REASON:-see needs-restarting -r}"
     fi
 
+    # dnf-automatic / yum-cron: 1 = security updates only (upgrade_type / update_cmd security), 2 = all updates
+    OSAUTO=0
     for t in dnf-automatic-install.timer; do
-        systemctl is-enabled -q "$t" 2>/dev/null && AUTOUPDATE=1
+        systemctl is-enabled -q "$t" 2>/dev/null && OSAUTO=1
     done
     for t in dnf-automatic.timer dnf5-automatic.timer; do
         systemctl is-enabled -q "$t" 2>/dev/null \
             && grep -qE '^[[:space:]]*apply_updates[[:space:]]*=[[:space:]]*(yes|true|1)' /etc/dnf/automatic.conf 2>/dev/null \
-            && AUTOUPDATE=1
+            && OSAUTO=1
     done
-    systemctl is-enabled -q yum-cron 2>/dev/null \
-        && grep -qE '^[[:space:]]*apply_updates[[:space:]]*=[[:space:]]*yes' /etc/yum/yum-cron.conf 2>/dev/null \
-        && AUTOUPDATE=1
+    if [ "$OSAUTO" -eq 1 ]; then
+        AUTOUPDATE=2
+        grep -qE '^[[:space:]]*upgrade_type[[:space:]]*=[[:space:]]*security' /etc/dnf/automatic.conf 2>/dev/null && AUTOUPDATE=1
+    fi
+    if systemctl is-enabled -q yum-cron 2>/dev/null \
+       && grep -qE '^[[:space:]]*apply_updates[[:space:]]*=[[:space:]]*yes' /etc/yum/yum-cron.conf 2>/dev/null; then
+        AUTOUPDATE=2
+        grep -qE '^[[:space:]]*update_cmd[[:space:]]*=[[:space:]]*(security|minimal-security)' /etc/yum/yum-cron.conf 2>/dev/null && AUTOUPDATE=1
+    fi
 
     # History from the rpm database (install time of the packages), newest first
     rpm -qa --qf '%{INSTALLTIME} %{NAME} %{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null \
@@ -548,8 +559,12 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.check.result $(q "$RESULT")"
     echo "- patch.reboot.required $REBOOT"
     [ -n "$LASTBOOT" ] && echo "- patch.lastboot $LASTBOOT"
+    # Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management
+    # (AUTO_UPDATE="true" in zbx-patch.conf - this script installs the updates), 4 OS + patch management
+    if [ "$AUTO_UPDATE" -eq 1 ]; then
+        if [ "$AUTOUPDATE" -gt 0 ]; then AUTOUPDATE=4; else AUTOUPDATE=3; fi
+    fi
     echo "- patch.autoupdate $AUTOUPDATE"
-    # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (--auto-update)
     echo "- patch.autoupdate.config $AUTO_UPDATE"
     echo "- patch.reboot.allowed $REBOOT_ALLOWED"
     echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
