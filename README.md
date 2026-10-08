@@ -259,6 +259,7 @@ The playbook patches 25 % of the hosts at a time (`patch_serial`), reboots when 
 - *Security* on Linux: on Debian / Ubuntu the packages from a `*-security` suite, on RHEL the packages with a security advisory (`updateinfo`).
 - The Windows update categories are detected by their classification ID, so it works on Windows in any language.
 - The patch day is the day of the **last package change** on the host, so manual installs or daily unattended-upgrades move it too.
+- Text items (OS, update source, lists, history, settings) drop unchanged values, but keep one at least every **6 hours** (*Discard unchanged with heartbeat 6h*). Dashboards and the API show the last value only from the last 24 hours (*Max history display period*), so a longer heartbeat would leave the columns empty. If you run the check less often than every 24 hours, raise *Administration → General → GUI → Max history display period*.
 
 ## Support, deployment & custom work
 

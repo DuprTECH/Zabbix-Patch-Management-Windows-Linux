@@ -128,7 +128,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: system
@@ -143,7 +143,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: system
@@ -158,7 +158,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: system
@@ -173,7 +173,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: system
@@ -260,7 +260,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: system
@@ -514,7 +514,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: updates
@@ -535,7 +535,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: history
@@ -588,7 +588,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: reboot
@@ -669,7 +669,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: lastupdate
@@ -779,7 +779,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: maintenance
@@ -856,7 +856,7 @@ zabbix_export:
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 1d
+                - 6h
           tags:
             - tag: component
               value: maintenance
