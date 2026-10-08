@@ -36,7 +36,7 @@
     Patch settings <Zabbix agent folder>\zbx-patch.conf (created when missing, overwritten when
     -MaintenanceWindow, -Exclude or -Reboot is given; see the comments in the file):
     when updates may be installed, for example "Sun 02:00-05:00"
-    (default: the times of the scheduled task + 2 hours).
+    (default: "* 03:00-05:00" - every night, never during the day).
 
 .PARAMETER Exclude
     Updates that are not installed, for example "KB5034441, Preview" (KB number or a part of the title).
@@ -115,13 +115,8 @@ Write-Output ("Scheduled task '{0}': every {1} h, offset {2} min" -f $TaskName, 
 $patchConf = Join-Path $AgentDir 'zbx-patch.conf'
 $given = $PSBoundParameters.ContainsKey('MaintenanceWindow') -or $PSBoundParameters.ContainsKey('Exclude') -or $PSBoundParameters.ContainsKey('Reboot')
 if (-not (Test-Path $patchConf) -or $given) {
-    if (-not $PSBoundParameters.ContainsKey('MaintenanceWindow')) {
-        # Default window: every time of the scheduled task + 2 hours
-        $MaintenanceWindow = (@($triggers | ForEach-Object {
-            $t = [datetime]$_.StartBoundary
-            '* {0:HH:mm}-{1:HH:mm}' -f $t, $t.AddHours(2)
-        }) -join ', ')
-    }
+    # Default window: every night 03:00-05:00, never during the day
+    if (-not $PSBoundParameters.ContainsKey('MaintenanceWindow')) { $MaintenanceWindow = '* 03:00-05:00' }
     if (-not $Reboot) { $Reboot = 'yes' }
     @"
 # zbx-patch.conf - patch management settings of this host

@@ -25,7 +25,7 @@
 # Patch settings /etc/zabbix/zbx-patch.conf (created when missing, overwritten when one of
 # these is set; see the comments in the file):
 #   MAINTENANCE_WINDOW when updates may be installed, for example "Sun 02:00-05:00"
-#                      (default: the cron times of the check + 2 hours)
+#                      (default: "* 03:00-05:00" - every night, never during the day)
 #   EXCLUDE            packages that are not updated, for example "kernel*, docker-ce"
 #   REBOOT             reboot after updates when needed: yes / no (default: yes)
 #
@@ -95,14 +95,8 @@ echo "Cron $CRON: $MINUTE $HOURS * * * (every $INTERVAL_HOURS h)"
 
 # 4. Patch settings: created when missing, overwritten when a setting is given
 if [ ! -f "$CONF" ] || [ -n "${MAINTENANCE_WINDOW+x}${EXCLUDE+x}${REBOOT+x}" ]; then
-    if [ -z "${MAINTENANCE_WINDOW+x}" ]; then
-        # Default window: every cron time of the check + 2 hours
-        MAINTENANCE_WINDOW=""
-        IFS=',' read -ra _hours <<< "$HOURS"
-        for h in "${_hours[@]}"; do
-            MAINTENANCE_WINDOW="${MAINTENANCE_WINDOW:+$MAINTENANCE_WINDOW, }$(printf '* %02d:%02d-%02d:%02d' "$h" "$MINUTE" $(( (h + 2) % 24 )) "$MINUTE")"
-        done
-    fi
+    # Default window: every night 03:00-05:00, never during the day
+    [ -z "${MAINTENANCE_WINDOW+x}" ] && MAINTENANCE_WINDOW="* 03:00-05:00"
     mkdir -p "$(dirname "$CONF")"
     cat > "$CONF" <<EOF
 # zbx-patch.conf - patch management settings of this host
