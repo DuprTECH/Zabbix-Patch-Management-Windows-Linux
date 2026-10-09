@@ -1095,7 +1095,7 @@ zabbix_export:
                       name: thresholds.0.threshold
                       value: '7776000'
                 - type: item
-                  name: 'OS'
+                  name: 'Automatic updates'
                   'y': '3'
                   width: '12'
                   height: '3'
@@ -1104,7 +1104,7 @@ zabbix_export:
                       name: itemid.0
                       value:
                         host: 'APP Patch management all OS'
-                        key: patch.os.name
+                        key: patch.autoupdate
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -1115,17 +1115,17 @@ zabbix_export:
                       name: value_size
                       value: '20'
                 - type: item
-                  name: 'OS version / kernel'
+                  name: 'Automatic updates detail'
                   x: '12'
                   'y': '3'
-                  width: '12'
+                  width: '24'
                   height: '3'
                   fields:
                     - type: ITEM
                       name: itemid.0
                       value:
                         host: 'APP Patch management all OS'
-                        key: patch.os.version
+                        key: patch.autoupdate.detail
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -1137,27 +1137,6 @@ zabbix_export:
                       value: '20'
                 - type: item
                   name: 'Maintenance window'
-                  x: '24'
-                  'y': '3'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value:
-                        host: 'APP Patch management all OS'
-                        key: patch.maintenance.window
-                    - type: INTEGER
-                      name: show.0
-                      value: '2'
-                    - type: INTEGER
-                      name: decimal_places
-                      value: '0'
-                    - type: INTEGER
-                      name: value_size
-                      value: '20'
-                - type: item
-                  name: 'Automatic updates'
                   x: '36'
                   'y': '3'
                   width: '12'
@@ -1167,7 +1146,7 @@ zabbix_export:
                       name: itemid.0
                       value:
                         host: 'APP Patch management all OS'
-                        key: patch.autoupdate.detail
+                        key: patch.maintenance.window
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -1293,6 +1272,15 @@ zabbix_export:
                     - type: STRING
                       name: reference
                       value: 'PMPUG'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
                     - type: STRING
                       name: time_period.from
                       value: 'now-30d'
@@ -1716,6 +1704,15 @@ zabbix_export:
                     - type: STRING
                       name: reference
                       value: 'PMCAG'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
                     - type: STRING
                       name: time_period.from
                       value: 'now-90d'
@@ -1821,6 +1818,15 @@ zabbix_export:
                     - type: STRING
                       name: reference
                       value: 'PMSEG'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
                     - type: STRING
                       name: time_period.from
                       value: 'now-90d'
@@ -2025,6 +2031,15 @@ zabbix_export:
                     - type: STRING
                       name: reference
                       value: 'PMING'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
                     - type: STRING
                       name: time_period.from
                       value: 'now-1y'
@@ -2072,6 +2087,15 @@ zabbix_export:
                     - type: STRING
                       name: reference
                       value: 'PMAGG'
+                    - type: INTEGER
+                      name: ds.0.axisy
+                      value: '1'
+                    - type: INTEGER
+                      name: lefty
+                      value: '0'
+                    - type: INTEGER
+                      name: righty
+                      value: '1'
                     - type: STRING
                       name: time_period.from
                       value: 'now-1y'

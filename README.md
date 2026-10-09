@@ -129,7 +129,7 @@ The template contains the dashboard **Patch management**, shown for every host w
 
 | Page | Widgets |
 |------|---------|
-| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, OS, OS version / kernel, maintenance window, automatic updates, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match |
+| **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, automatic updates, automatic updates detail, maintenance window, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match |
 | **Categories and severity** | Pie charts of pending updates by category and by severity, stacked graphs of both (90 days) |
 | **Installs and history** | Last install run, status, installed / failed count, last update installed, last reboot; installed / failed updates per run and time since update / reboot (1 year); history of install runs, installed updates, OS version / kernel and check results |
 

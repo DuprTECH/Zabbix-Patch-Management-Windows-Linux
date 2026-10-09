@@ -471,7 +471,7 @@ $wsus   = if ($auPol.UseWUServer -eq 1 -and $wuPol.WUServer) { "$($wuPol.WUServe
 $level  = $null
 try { $level = (New-Object -ComObject Microsoft.Update.AutoUpdate).Settings.NotificationLevel } catch {}
 $isServer = $os.ProductType -ne 1
-$autoUpdate = 0
+$autoUpdateMode = 0
 if ($startup -eq 3) {
     $autoDetail = 'service wuauserv disabled'
 } elseif ($auPol.NoAutoUpdate -eq 1) {
@@ -480,16 +480,16 @@ if ($startup -eq 3) {
     switch ([int]$auPol.AUOptions) {
         2 { $autoDetail = 'notify before download (AUOptions 2)' }
         3 { $autoDetail = 'download only, notify to install (AUOptions 3)' }
-        4 { $autoDetail = 'download and install automatically (AUOptions 4)'; $autoUpdate = 2 }
+        4 { $autoDetail = 'download and install automatically (AUOptions 4)'; $autoUpdateMode = 2 }
         5 {
             $autoDetail = 'local admin chooses (AUOptions 5)'
-            if ($level -eq 4) { $autoDetail += ': install automatically'; $autoUpdate = 2 }
+            if ($level -eq 4) { $autoDetail += ': install automatically'; $autoUpdateMode = 2 }
         }
         7 { $autoDetail = 'download only, notify to install and restart (AUOptions 7)' }
         default { $autoDetail = "policy AUOptions $($auPol.AUOptions)" }
     }
 } elseif ($level -eq 4 -or ($level -in $null, 0 -and -not $isServer)) {
-    $autoDetail = 'not configured: Windows installs automatically'; $autoUpdate = 2
+    $autoDetail = 'not configured: Windows installs automatically'; $autoUpdateMode = 2
 } elseif ($level -in 1, 2, 3) {
     $autoDetail = "not configured by policy: $(@{1 = 'disabled'; 2 = 'notify before download'; 3 = 'download only'}[[int]$level])"
 } else {
@@ -498,7 +498,7 @@ if ($startup -eq 3) {
 $autoDetail = "Windows Update: $autoDetail"
 if ($wsus) { $autoDetail += "; WSUS $wsus (approved updates only)" }
 if ($autoInstall) {
-    $autoUpdate = if ($autoUpdate -gt 0) { 4 } else { 3 }
+    $autoUpdateMode = if ($autoUpdateMode -gt 0) { 4 } else { 3 }
     $autoDetail = "Patch management (AUTO_UPDATE in zbx-patch.conf, window '$maintWindow'); $autoDetail"
 }
 $source = if ($wsus) { "WSUS $wsus" } else { 'Windows Update' }
@@ -516,7 +516,7 @@ $lines = @(
     "- patch.reboot.required $rebootRequired",
     "- patch.lastboot $lastBoot",
     "- patch.service.startup $startup",
-    "- patch.autoupdate $autoUpdate",
+    "- patch.autoupdate $autoUpdateMode",
     "- patch.autoupdate.detail $(Q $autoDetail)",
     # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (-AutoUpdate task)
     "- patch.autoupdate.config $autoInstall",
