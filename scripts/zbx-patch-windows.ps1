@@ -269,6 +269,21 @@ if ($maint.error) { Write-Warning "${PatchConfig}: $($maint.error)" }
 $mutex = New-Object System.Threading.Mutex($false, 'Global\zbx-patch-windows')
 try { [void]$mutex.WaitOne([TimeSpan]::FromMinutes(30)) } catch [System.Threading.AbandonedMutexException] {}
 
+# Pending reboot: Windows Update or Component Based Servicing (used by the install and by the check)
+function Get-RebootReasons {
+    $r = @()
+    try {
+        if ((New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired) { $r += "Windows Update" }
+    } catch {}
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') {
+        if ($r -notcontains "Windows Update") { $r += "Windows Update" }
+    }
+    if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') {
+        $r += "Component Based Servicing"
+    }
+    $r
+}
+
 # ---------------- Install updates (-Update) ----------------
 # Like the Ansible playbook: security, critical, update rollups, definitions and updates without EXCLUDE,
 # reboot when needed and allowed; the result goes to the patch.install.* items
@@ -309,10 +324,11 @@ function Install-Updates {
         } else {
             Write-Host 'No updates to install.'
         }
-        if ((New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired) { $needReboot = $true }
     } catch {
         $err = $_.Exception.Message
     }
+    # Same detection as the check (patch.reboot.required), also a reboot left over from an earlier install
+    if (@(Get-RebootReasons).Count -gt 0) { $needReboot = $true }
     $doReboot = (-not $err) -and $needReboot -and $rebootAllowed
     $result = if ($err) { "FAILED: $err" } else {
         "OK, installed $($installed.Count), failed $($failed.Count)" + $(if ($doReboot) { ', rebooting' } elseif ($needReboot) { ', reboot required' } else { '' })
@@ -437,16 +453,7 @@ if ($history.Count -eq 0) {
 
 # ---------------- Reboot ----------------
 $rebootRequired = 0
-$reasons = @()
-try {
-    if ((New-Object -ComObject Microsoft.Update.SystemInfo).RebootRequired) { $reasons += "Windows Update" }
-} catch {}
-if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') {
-    if ($reasons -notcontains "Windows Update") { $reasons += "Windows Update" }
-}
-if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending') {
-    $reasons += "Component Based Servicing"
-}
+$reasons = @(Get-RebootReasons)
 if ($reasons.Count -gt 0) { $rebootRequired = 1 }
 $rebootReason = if ($reasons.Count -gt 0) { "Pending: " + ($reasons -join ", ") } else { "-" }
 

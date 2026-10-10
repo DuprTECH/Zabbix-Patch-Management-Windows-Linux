@@ -52,6 +52,10 @@
 # License: MIT
 # ----------------------------------------------------------------------------
 
+# cron has only /usr/bin:/bin - shutdown, apt-mark, needs-restarting can be in the sbin folders
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
+export PATH
+
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
 if [ -z "$ZABBIX_CONF" ]; then
@@ -234,7 +238,7 @@ fi
 # Like the Ansible playbook: refresh, upgrade without EXCLUDE, autoremove, reboot when needed
 # and allowed; the result goes to the patch.install.* items
 do_update() {
-    local pm="" need=0 rc=0 err="" changes count result doreboot=0 p n held_now newest
+    local pm="" need=0 rc=0 err="" changes count result doreboot=0 rebootfail=0 p n held_now newest
     local -a held=() x=()
     local w
     for p in apt-get dnf yum; do command -v $p >/dev/null 2>&1 && { pm=$p; break; }; done
@@ -299,8 +303,13 @@ do_update() {
     rm -rf "$w"
     count=$(printf '%s' "$changes" | grep -c .)
     [ "$rc" -eq 0 ] && [ "$need" -eq 1 ] && [ "$REBOOT_ALLOWED" -eq 1 ] && doreboot=1
+    # Schedule the reboot first, so the result tells whether it worked
+    # (the check runs again after the reboot: @reboot line in /etc/cron.d/zbx-patch-linux)
+    if [ "$doreboot" -eq 1 ] && ! shutdown -r +2 "Reboot after the update (zbx-patch-linux.sh)"; then
+        doreboot=0; rebootfail=1
+    fi
     if [ "$rc" -ne 0 ]; then result="FAILED: $err"
-    else result="OK, changed $count packages$( [ "$doreboot" -eq 1 ] && echo ', rebooting')$( [ "$need" -eq 1 ] && [ "$doreboot" -eq 0 ] && echo ', reboot required')"; fi
+    else result="OK, changed $count packages$( [ "$doreboot" -eq 1 ] && echo ', rebooting')$( [ "$need" -eq 1 ] && [ "$doreboot" -eq 0 ] && echo ', reboot required')$( [ "$rebootfail" -eq 1 ] && echo ' (reboot FAILED: shutdown -r)')"; fi
     echo "=== Result"
     [ -n "$changes" ] && printf '%s\n' "$changes"
     echo "$result"
@@ -311,12 +320,11 @@ do_update() {
     send -k patch.install.result -o "$result" >/dev/null
     if [ "$doreboot" -eq 1 ]; then
         send -k patch.reboot.required -o 0 >/dev/null
-        # The check runs again after the reboot (@reboot line in /etc/cron.d/zbx-patch-linux)
-        shutdown -r +2 "Reboot after the update (zbx-patch-linux.sh)"
         echo "Rebooting in 2 minutes (cancel: shutdown -c)."
         exit 0
     fi
-    [ "$need" -eq 1 ] && echo "WARNING: a reboot is required, but REBOOT=\"no\" in $PATCH_CONF" >&2
+    if [ "$rebootfail" -eq 1 ]; then echo "ERROR: the reboot failed (shutdown -r), reboot the host by hand" >&2
+    elif [ "$need" -eq 1 ] && [ "$rc" -eq 0 ]; then echo "WARNING: a reboot is required, but REBOOT=\"no\" in $PATCH_CONF" >&2; fi
     return "$rc"
 }
 if [ "$MODE" = update ]; then
