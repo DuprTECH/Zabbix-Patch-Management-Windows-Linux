@@ -12,7 +12,7 @@
       patch.updates.list, patch.history (recent update history, like a log)
       patch.reboot.required, patch.reboot.reason, patch.lastboot
       patch.lastupdate.timestamp, patch.lastupdate.patchday
-      patch.os, patch.os.name, patch.os.version, patch.source (Windows Update / WSUS <server>), patch.source.available
+      patch.os, patch.os.name, patch.os.version, patch.script.version, patch.source (Windows Update / WSUS <server>), patch.source.available
       patch.service.startup, patch.autoupdate (0-4), patch.autoupdate.detail, patch.autoupdate.config
       patch.check.timestamp, patch.check.duration, patch.check.result
     Values that don't exist on Windows (kernel) are sent as 0.
@@ -93,6 +93,9 @@ param(
 )
 
 $start = Get-Date
+
+# Version of this script (item patch.script.version) - change it with every change of the script
+$ScriptVersion = '2026.10.10'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -515,6 +518,7 @@ $lines = @(
     "- patch.os Windows",
     "- patch.os.name $(Q $os.Caption.Trim())",
     "- patch.os.version $(Q $osVersion)",
+    "- patch.script.version $ScriptVersion",
     "- patch.source $(Q $source)",
     "- patch.source.available $searchOk",
     "- patch.check.timestamp $(ConvertTo-Epoch (Get-Date))",

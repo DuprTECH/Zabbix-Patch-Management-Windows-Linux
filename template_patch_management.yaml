@@ -162,6 +162,21 @@ zabbix_export:
           tags:
             - tag: component
               value: system
+        - uuid: c7500b9ded1242e3b26eca02d076e31d
+          name: 'Patch - Check script version'
+          type: TRAP
+          key: patch.script.version
+          history: 90d
+          value_type: CHAR
+          trends: '0'
+          description: 'Version of the check script on the host (zbx-patch-linux.sh / zbx-patch-windows.ps1), for example 2026.10.10. Shows the hosts with an old script.'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: system
         - uuid: 5522af96d6a14d0f8f27590e7ffa7fc3
           name: 'Patch - Update source'
           type: TRAP
@@ -1333,7 +1348,10 @@ zabbix_export:
                       value: '4'
                     - type: INTEGER
                       name: legend_lines
-                      value: '2'
+                      value: '4'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
                 - type: svggraph
                   name: 'Reboot required / time since reboot (30 days)'
                   x: '36'
@@ -1399,6 +1417,9 @@ zabbix_export:
                     - type: INTEGER
                       name: legend_lines
                       value: '2'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
                 - type: problems
                   name: 'Patch management problems'
                   'y': '20'
@@ -1626,10 +1647,10 @@ zabbix_export:
                       value: 'now'
                     - type: INTEGER
                       name: legend_lines
-                      value: '3'
+                      value: '9'
                     - type: INTEGER
                       name: legend_columns
-                      value: '2'
+                      value: '1'
                 - type: piechart
                   name: 'Pending updates by severity'
                   x: '36'
@@ -1691,15 +1712,15 @@ zabbix_export:
                       value: 'now'
                     - type: INTEGER
                       name: legend_lines
-                      value: '3'
+                      value: '4'
                     - type: INTEGER
                       name: legend_columns
-                      value: '2'
+                      value: '1'
                 - type: svggraph
                   name: 'Pending updates by category (90 days)'
                   'y': '8'
                   width: '72'
-                  height: '6'
+                  height: '8'
                   fields:
                     - type: STRING
                       name: reference
@@ -1808,10 +1829,13 @@ zabbix_export:
                       value: '4'
                     - type: INTEGER
                       name: legend_lines
-                      value: '2'
+                      value: '9'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
                 - type: svggraph
                   name: 'Pending updates by severity (90 days)'
-                  'y': '14'
+                  'y': '16'
                   width: '72'
                   height: '6'
                   fields:
@@ -1882,12 +1906,15 @@ zabbix_export:
                       value: '4'
                     - type: INTEGER
                       name: legend_lines
-                      value: '2'
+                      value: '4'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
             - name: 'Installs and history'
               widgets:
                 - type: item
                   name: 'Last install run'
-                  width: '12'
+                  width: '10'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -1906,8 +1933,8 @@ zabbix_export:
                       value: '20'
                 - type: item
                   name: 'Install status'
-                  x: '12'
-                  width: '12'
+                  x: '10'
+                  width: '10'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -1938,8 +1965,8 @@ zabbix_export:
                       value: '1'
                 - type: item
                   name: 'Installed (last run)'
-                  x: '24'
-                  width: '12'
+                  x: '20'
+                  width: '10'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -1955,8 +1982,8 @@ zabbix_export:
                       value: '0'
                 - type: item
                   name: 'Failed (last run)'
-                  x: '36'
-                  width: '12'
+                  x: '30'
+                  width: '10'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -1984,8 +2011,8 @@ zabbix_export:
                       value: '1'
                 - type: item
                   name: 'Last update installed'
-                  x: '48'
-                  width: '12'
+                  x: '40'
+                  width: '10'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -2004,8 +2031,8 @@ zabbix_export:
                       value: '20'
                 - type: item
                   name: 'Last reboot'
-                  x: '60'
-                  width: '12'
+                  x: '50'
+                  width: '10'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -2019,6 +2046,23 @@ zabbix_export:
                     - type: INTEGER
                       name: decimal_places
                       value: '0'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Check script version'
+                  x: '60'
+                  width: '12'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.script.version
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
                     - type: INTEGER
                       name: value_size
                       value: '20'
@@ -2077,6 +2121,9 @@ zabbix_export:
                     - type: INTEGER
                       name: legend_lines
                       value: '2'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
                 - type: svggraph
                   name: 'Time since last update / reboot (1 year)'
                   x: '36'
@@ -2130,6 +2177,9 @@ zabbix_export:
                     - type: INTEGER
                       name: legend_lines
                       value: '2'
+                    - type: INTEGER
+                      name: legend_columns
+                      value: '1'
                 - type: itemhistory
                   name: 'Install runs'
                   'y': '9'

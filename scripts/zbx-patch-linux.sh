@@ -56,6 +56,9 @@
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
+# Version of this script (item patch.script.version) - change it with every change of the script
+SCRIPT_VERSION="2026.10.10"
+
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
 if [ -z "$ZABBIX_CONF" ]; then
@@ -564,6 +567,7 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.os Linux"
     echo "- patch.os.name $(q "$OS_NAME")"
     echo "- patch.os.version $(q "$OS_VERSION")"
+    echo "- patch.script.version $SCRIPT_VERSION"
     echo "- patch.source $PKGMGR"
     [ -n "$REPO" ] && echo "- patch.source.available $REPO"
     echo "- patch.check.timestamp $(date +%s)"

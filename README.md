@@ -84,6 +84,7 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Last reboot time / time since | `patch.lastboot`, `patch.lastboot.age` | ✔ | ✔ |
 | Last update installed / age / patch day | `patch.lastupdate.timestamp`, `.age`, `.patchday` | detected on the host | detected on the host |
 | OS family / name / version | `patch.os`, `patch.os.name`, `patch.os.version` | build with UBR | distribution, running kernel |
+| Check script version | `patch.script.version` | `$ScriptVersion` in the script, for example `2026.10.10` | `SCRIPT_VERSION` in the script |
 | Update source / availability | `patch.source`, `patch.source.available` | Windows Update or `WSUS <server>`, search succeeded | package manager, repositories reachable |
 | Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management (`AUTO_UPDATE`), 4 OS + patch management | `patch.autoupdate` | policy `AUOptions 4` or no policy on a client (2); notify / download only, `NoAutoUpdate`, no policy on Windows Server (0); `AUTO_UPDATE` (3) | unattended-upgrades, dnf-automatic, yum-cron (1 / 2), `AUTO_UPDATE` (3) |
 | Automatic updates detail | `patch.autoupdate.detail` | for example `Windows Update: download only, notify to install (AUOptions 3); WSUS http://wsus:8530 (approved updates only)` | for example `unattended-upgrades: security updates only` |
@@ -120,7 +121,7 @@ The **global dashboard of all hosts is not part of this repository** and is not 
 | [![Global dashboard – overview](images/global_dashboard_1.png)](images/global_dashboard_1.png) | [![Global dashboard – all hosts](images/global_dashboard_2.png)](images/global_dashboard_2.png) | [![Global dashboard – reboot and installs](images/global_dashboard_3.png)](images/global_dashboard_3.png) |
 
 - **Overview**: hosts, compliance, hosts with pending / security / critical updates, reboot required, failed installs, no data, pending updates totals, hosts not updated for 45+ days, automatic updates off, update source down, average uptime and time since update; hosts by OS, update compliance, honeycomb of hosts by pending security updates; 1 year trends; patch management problems
-- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, automatic updates (0 disabled … 3 patch management, colored), update source, last check, check and install result, maintenance window, next window, excluded updates
+- **All hosts**: one table of all Windows and Linux hosts – OS, pending updates by category, reboot, uptime, last update, automatic updates (0 disabled … 3 patch management, colored), update source, last check, check and install result, check script version, maintenance window, next window, excluded updates
 - **Reboot and installs**: longest uptime with the reboot reason, longest without installed updates, results of the last install runs
 
 ### Host dashboard pages
@@ -131,7 +132,7 @@ The template contains the dashboard **Patch management**, shown for every host w
 |------|---------|
 | **Overview** | Tiles: pending / security / critical / kernel / held updates, reboot required, last update installed, time since reboot, automatic updates, automatic updates detail, maintenance window, last check, check result. Pending updates list, update history (recent installs), graphs of pending updates and reboot / uptime (30 days), patch management problems; patch settings: maintenance window, next window, reboot allowed, excluded updates and how many pending updates they match |
 | **Categories and severity** | Pie charts of pending updates by category and by severity, stacked graphs of both (90 days) |
-| **Installs and history** | Last install run, status, installed / failed count, last update installed, last reboot; installed / failed updates per run and time since update / reboot (1 year); history of install runs, installed updates, OS version / kernel and check results |
+| **Installs and history** | Last install run, status, installed / failed count, last update installed, last reboot, check script version; installed / failed updates per run and time since update / reboot (1 year); history of install runs, installed updates, OS version / kernel and check results |
 
 
 ## Requirements
