@@ -892,13 +892,17 @@ zabbix_export:
                 - tag: scope
                   value: notice
         - uuid: e02807b5cd9a45269faa3291f81ee139
-          name: 'Patch - Settings from host macros'
+          name: 'Patch - Config (in effect, with source)'
           type: TRAP
           key: patch.config.override
           history: 90d
-          value_type: CHAR
+          value_type: TEXT
           trends: '0'
-          description: 'Keys of the patch settings that come from the host macros {$PATCH.CONF.*} (zbx-patch-from-zbx-host-macro.cache) and override zbx-patch.conf, for example "AUTO_UPDATE, MAINTENANCE_WINDOW"; - = none, zbx-patch.conf only.'
+          description: |
+            The patch settings in effect on the host, each with its source, for example:
+            [zabbix] window: 1-5 03:00-05:00, [file] auto update: false, [file] reboot: yes, [default] exclude: -
+            [zabbix] = host macro {$PATCH.CONF.*} in Zabbix (zbx-patch-from-zbx-host-macro.cache, wins),
+            [file] = zbx-patch.conf on the host, [default] = set nowhere, the default applies.
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
@@ -1181,7 +1185,7 @@ zabbix_export:
                   name: 'Automatic updates detail'
                   x: '12'
                   'y': '3'
-                  width: '24'
+                  width: '36'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -1189,27 +1193,6 @@ zabbix_export:
                       value:
                         host: 'APP Patch management all OS'
                         key: patch.autoupdate.detail
-                    - type: INTEGER
-                      name: show.0
-                      value: '2'
-                    - type: INTEGER
-                      name: decimal_places
-                      value: '0'
-                    - type: INTEGER
-                      name: value_size
-                      value: '20'
-                - type: item
-                  name: 'Maintenance window'
-                  x: '36'
-                  'y': '3'
-                  width: '12'
-                  height: '3'
-                  fields:
-                    - type: ITEM
-                      name: itemid.0
-                      value:
-                        host: 'APP Patch management all OS'
-                        key: patch.maintenance.window
                     - type: INTEGER
                       name: show.0
                       value: '2'
@@ -1594,9 +1577,9 @@ zabbix_export:
                       name: thresholds.0.threshold
                       value: '1'
                 - type: item
-                  name: 'Settings from host macros'
+                  name: 'Config'
                   'y': '28'
-                  width: '24'
+                  width: '48'
                   height: '3'
                   fields:
                     - type: ITEM
@@ -1609,12 +1592,12 @@ zabbix_export:
                       value: '2'
                     - type: INTEGER
                       name: value_size
-                      value: '20'
+                      value: '10'
                 - type: item
                   name: 'Host macros - agent result'
-                  x: '24'
+                  x: '48'
                   'y': '28'
-                  width: '48'
+                  width: '24'
                   height: '3'
                   fields:
                     - type: ITEM

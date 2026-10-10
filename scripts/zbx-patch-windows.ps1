@@ -111,7 +111,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.10.2'
+$ScriptVersion = '26.10.11'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -194,8 +194,10 @@ function Read-PatchConf([string]$Path) {
     }
     $c
 }
-$conf = Read-PatchConf $PatchConfig
+$confFile  = Read-PatchConf $PatchConfig
 $confMacro = Read-PatchConf $PatchConfigMacro
+$conf = [ordered]@{}
+foreach ($k in $confFile.Keys)  { $conf[$k] = $confFile[$k] }
 foreach ($k in $confMacro.Keys) { $conf[$k] = $confMacro[$k] }
 $macroKeys = (@($confMacro.Keys) | Sort-Object) -join ', '
 $maintWindow   = "$($conf['MAINTENANCE_WINDOW'])"
@@ -203,6 +205,17 @@ $excludeText   = "$($conf['EXCLUDE'])"
 $exclude       = @($excludeText -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $rebootAllowed = if ("$($conf['REBOOT'])" -match '^(no|false|0|off)$') { 0 } else { 1 }
 $autoInstall   = if ("$($conf['AUTO_UPDATE'])" -match '^(yes|true|1|on)$') { 1 } else { 0 }
+
+# Settings in effect with their source (item patch.config.override, column Config of the dashboards):
+# [zabbix] = host macro, [file] = zbx-patch.conf, [default] = set nowhere, the default applies
+function Get-ConfSource([string]$Key) {
+    if ($confMacro.Contains($Key)) { 'zabbix' } elseif ($confFile.Contains($Key)) { 'file' } else { 'default' }
+}
+$configSummary = '[{0}] window: {1}, [{2}] auto update: {3}, [{4}] reboot: {5}, [{6}] exclude: {7}' -f `
+    (Get-ConfSource 'MAINTENANCE_WINDOW'), $(if ($maintWindow) { $maintWindow } else { 'any time' }),
+    (Get-ConfSource 'AUTO_UPDATE'), $(if ($autoInstall) { 'true' } else { 'false' }),
+    (Get-ConfSource 'REBOOT'), $(if ($rebootAllowed) { 'yes' } else { 'no' }),
+    (Get-ConfSource 'EXCLUDE'), $(if ($excludeText) { $excludeText } else { '-' })
 
 # Update excluded by EXCLUDE: KB number, or a part of the title (wildcards allowed)
 function Test-Excluded([string]$Title, [string]$Kb) {
@@ -673,7 +686,7 @@ $lines = @(
     "- patch.autoupdate.detail $(Q $autoDetail)",
     # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (-AutoUpdate task)
     "- patch.autoupdate.config $autoInstall",
-    "- patch.config.override $(Q $(if ($macroKeys) { $macroKeys } else { '-' }))",
+    "- patch.config.override $(Q $configSummary)",
     "- patch.reboot.allowed $rebootAllowed",
     "- patch.maintenance.window $(Q ($(if ($maintWindow) { $maintWindow } else { '-' }) + $(if ($maint.error) { " ($($maint.error))" })))",
     "- patch.exclude $(Q $(if ($excludeText.Trim()) { $excludeText.Trim() } else { '-' }))"

@@ -43,7 +43,9 @@
 # {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}): the agent item patch.config (UserParameter, installed by
 # --install-agent-config) writes the set ones to zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf
 # (PATCH_CONF_MACRO). Its keys win over zbx-patch.conf, which is never changed from Zabbix.
-# patch.config.override tells which keys come from the macros.
+# patch.config.override: the settings in effect with their source, for example
+#   [zabbix] window: 1-5 03:00-05:00, [file] auto update: false, [file] reboot: yes, [default] exclude: -
+#   ([zabbix] = host macro, [file] = zbx-patch.conf, [default] = set nowhere, the default applies)
 #
 # Options:
 #   --show-config   print the patch settings as JSON (window active now, next window,
@@ -72,7 +74,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.10.2"
+SCRIPT_VERSION="26.10.11"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -169,9 +171,22 @@ REBOOT_ALLOWED=1
 case "$(trim "$(conf_get REBOOT)" | tr '[:upper:]' '[:lower:]')" in no|false|0|off) REBOOT_ALLOWED=0 ;; esac
 AUTO_UPDATE=0
 case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|true|1|on) AUTO_UPDATE=1 ;; esac
-# Keys set by the host macros (item patch.config.override)
+# Keys set by the host macros
 MACRO_KEYS=$( [ -r "$PATCH_CONF_MACRO" ] && sed -n -E 's/^[[:space:]]*([A-Z_]+)[[:space:]]*=.*/\1/p' "$PATCH_CONF_MACRO" \
     | sort -u | paste -sd, - | sed 's/,/, /g')
+# Source of a setting: zabbix (host macro), file (zbx-patch.conf) or default (set nowhere)
+conf_src() {
+    local f
+    for f in "$PATCH_CONF_MACRO:zabbix" "$PATCH_CONF:file"; do
+        [ -r "${f%:*}" ] && grep -qE "^[[:space:]]*$1[[:space:]]*=" "${f%:*}" && { echo "${f##*:}"; return; }
+    done
+    echo default
+}
+# Settings in effect with their source (item patch.config.override, column Config of the dashboards)
+CONFIG_SUMMARY="[$(conf_src MAINTENANCE_WINDOW)] window: ${MAINTENANCE_WINDOW:-any time}"
+CONFIG_SUMMARY+=", [$(conf_src AUTO_UPDATE)] auto update: $( [ "$AUTO_UPDATE" -eq 1 ] && echo true || echo false)"
+CONFIG_SUMMARY+=", [$(conf_src REBOOT)] reboot: $( [ "$REBOOT_ALLOWED" -eq 1 ] && echo yes || echo no)"
+CONFIG_SUMMARY+=", [$(conf_src EXCLUDE)] exclude: ${EXCLUDE:--}"
 
 # Exclusions: comma separated package names, wildcards allowed
 EXCL=()
@@ -764,7 +779,7 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.autoupdate $AUTOUPDATE"
     echo "- patch.autoupdate.detail $(q "$AUTODETAIL")"
     echo "- patch.autoupdate.config $AUTO_UPDATE"
-    echo "- patch.config.override $(q "${MACRO_KEYS:--}")"
+    echo "- patch.config.override $(q "$CONFIG_SUMMARY")"
     echo "- patch.reboot.allowed $REBOOT_ALLOWED"
     echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
     [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"
