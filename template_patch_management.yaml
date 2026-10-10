@@ -1593,6 +1593,41 @@ zabbix_export:
                     - type: STRING
                       name: thresholds.0.threshold
                       value: '1'
+                - type: item
+                  name: 'Settings from host macros'
+                  'y': '28'
+                  width: '24'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: patch.config.override
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
+                - type: item
+                  name: 'Host macros - agent result'
+                  x: '24'
+                  'y': '28'
+                  width: '48'
+                  height: '3'
+                  fields:
+                    - type: ITEM
+                      name: itemid.0
+                      value:
+                        host: 'APP Patch management all OS'
+                        key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
+                    - type: INTEGER
+                      name: show.0
+                      value: '2'
+                    - type: INTEGER
+                      name: value_size
+                      value: '20'
             - name: 'Categories and severity'
               widgets:
                 - type: piechart
