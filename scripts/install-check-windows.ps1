@@ -167,7 +167,13 @@ REBOOT="$Reboot"
 "@ | Set-Content -Path $patchConf -Encoding ASCII
 Write-Output "Patch settings ${patchConf}: window '$MaintenanceWindow', auto update $AutoUpdate, exclude '$Exclude', reboot $Reboot"
 
-# 5. Run the check now
+# 5. Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} ->
+#    zbx-patch-from-zbx-host-macro.cache, wins over zbx-patch.conf); the agent is restarted only
+#    when its config changed (undone when it doesn't start)
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $dest -ConfigPath $conf.FullName -InstallAgentConfig
+if ($LASTEXITCODE -ne 0) { Write-Warning 'UserParameter not installed - the host macros {$PATCH.CONF.*} do not apply on this host' }
+
+# 6. Run the check now
 if (-not $NoRun) {
     Write-Output "Running the check (the update search can take a few minutes) ..."
     $params = @{ SenderPath = $sender; ConfigPath = $conf.FullName }

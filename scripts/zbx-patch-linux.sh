@@ -39,6 +39,12 @@
 # patch.autoupdate (0 disabled, 1 OS security only, 2 OS all, 3 patch management, 4 both) and
 # patch.autoupdate.detail tell how updates are installed automatically.
 #
+# Settings from Zabbix (host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE},
+# {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}): the agent item patch.config (UserParameter, installed by
+# --install-agent-config) writes the set ones to zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf
+# (PATCH_CONF_MACRO). Its keys win over zbx-patch.conf, which is never changed from Zabbix.
+# patch.config.override tells which keys come from the macros.
+#
 # Options:
 #   --show-config   print the patch settings as JSON (window active now, next window,
 #                   exclusions, reboot, auto update) and exit - nothing is checked or sent
@@ -48,6 +54,12 @@
 #   --auto-update   for cron (every 15 min): with AUTO_UPDATE="true" and an open maintenance
 #                   window does --update once per window, otherwise exits right away
 #                   (log: /var/log/zbx-patch-update.log via cron)
+#   --zabbix-config "<window>|<auto update>|<exclude>|<reboot>"
+#                   for the agent (UserParameter patch.config): validate the macro values and write
+#                   the macro file (only when changed); prints OK / ERROR for the item
+#   --install-agent-config
+#                   for the setup (root): UserParameter patch.config in the agent Include folder,
+#                   the macro file writable by the agent, restart of the agent (undone when it fails)
 #
 # Author : Dusan Priechodsky
 # Source : https://github.com/DuprTECH/Zabbix-Patch-Management-Windows-Linux
@@ -59,8 +71,8 @@
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
-# Version of this script (item patch.script.version), YY.MM.DD - change it with every change of the script
-SCRIPT_VERSION="26.10.10"
+# Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
+SCRIPT_VERSION="26.10.10.2"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -131,12 +143,16 @@ patchday() {
 
 # ---------------- Patch settings (zbx-patch.conf) ----------------
 PATCH_CONF="${PATCH_CONF:-/etc/zabbix/zbx-patch.conf}"
+# Settings from the Zabbix host macros {$PATCH.CONF.*}, written by the agent (UserParameter
+# patch.config, --zabbix-config); a key set there wins over zbx-patch.conf
+PATCH_CONF_MACRO="${PATCH_CONF_MACRO:-$(dirname "$PATCH_CONF")/zbx-patch-from-zbx-host-macro.cache}"
 
-# Value of KEY="value" (also 'value' or value # comment); the last one wins
+# Value of KEY="value" (also 'value' or value # comment); the last one wins, the macro file last
 conf_get() {
-    [ -r "$PATCH_CONF" ] || return 0
-    local v
-    v=$(sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$PATCH_CONF" | tail -n 1)
+    local v f files=()
+    for f in "$PATCH_CONF" "$PATCH_CONF_MACRO"; do [ -r "$f" ] && files+=("$f"); done
+    [ ${#files[@]} -eq 0 ] && return 0
+    v=$(sed -n -E "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "${files[@]}" | tail -n 1)
     case "$v" in
         \"*) v=${v#\"}; v=${v%%\"*} ;;
         \'*) v=${v#\'}; v=${v%%\'*} ;;
@@ -153,6 +169,9 @@ REBOOT_ALLOWED=1
 case "$(trim "$(conf_get REBOOT)" | tr '[:upper:]' '[:lower:]')" in no|false|0|off) REBOOT_ALLOWED=0 ;; esac
 AUTO_UPDATE=0
 case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|true|1|on) AUTO_UPDATE=1 ;; esac
+# Keys set by the host macros (item patch.config.override)
+MACRO_KEYS=$( [ -r "$PATCH_CONF_MACRO" ] && sed -n -E 's/^[[:space:]]*([A-Z_]+)[[:space:]]*=.*/\1/p' "$PATCH_CONF_MACRO" \
+    | sort -u | paste -sd, - | sed 's/,/, /g')
 
 # Exclusions: comma separated package names, wildcards allowed
 EXCL=()
@@ -233,16 +252,138 @@ maint_eval() {
 }
 maint_eval
 
-MODE=check; FORCE=0
-for a in "$@"; do
-    case "$a" in
-        --show-config) MODE=show ;;
-        --update)      MODE=update ;;
-        --auto-update) MODE=auto ;;
-        --force)       FORCE=1 ;;
+MODE=check; FORCE=0; ZBX_VALUES=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --show-config)          MODE=show ;;
+        --update)               MODE=update ;;
+        --auto-update)          MODE=auto ;;
+        --force)                FORCE=1 ;;
+        --zabbix-config)        MODE=zabbix; ZBX_VALUES="${2-}"; shift ;;
+        --install-agent-config) MODE=agentconf ;;
     esac
+    shift
 done
 tf() { [ "$1" -eq 1 ] && echo true || echo false; }
+
+# ---------------- Settings from the Zabbix host macros (--zabbix-config) ----------------
+# Run by the Zabbix agent (UserParameter patch.config, as the user zabbix) with the values of the
+# macros {$PATCH.CONF.WINDOW}|{$PATCH.CONF.AUTO_UPDATE}|{$PATCH.CONF.EXCLUDE}|{$PATCH.CONF.REBOOT}.
+# Writes the set (non empty) ones to PATCH_CONF_MACRO, only when they changed; zbx-patch.conf is
+# never changed. Invalid values: nothing is written, the item gets "ERROR: ...".
+# The agent forbids * " ' $ ; | # and other characters in the values (UnsafeUserParameters=0), so:
+#   window: 1-7 = every day (instead of *), "any" = any time; exclude: % = wildcard, "none" = nothing
+zabbix_config() {
+    local w a e r extra content keys=() lines=()
+    IFS='|' read -r w a e r extra <<< "$1"
+    w=$(trim "$w"); a=$(trim "$a"); e=$(trim "$e"); r=$(trim "$r")
+    if [ -n "$w" ]; then
+        [ "${w,,}" = any ] && w=""
+        if ! [[ $w =~ ^[0-9A-Za-z\ .,:-]*$ ]]; then echo "ERROR: invalid {\$PATCH.CONF.WINDOW} '$w'"; return; fi
+        MAINTENANCE_WINDOW=$w; maint_eval
+        if [ -n "$MAINT_ERROR" ]; then echo "ERROR: {\$PATCH.CONF.WINDOW}: $MAINT_ERROR"; return; fi
+        keys+=(MAINTENANCE_WINDOW); lines+=("MAINTENANCE_WINDOW=\"$w\"")
+    fi
+    if [ -n "$a" ]; then
+        case "${a,,}" in
+            yes|true|1|on)  a=true ;;
+            no|false|0|off) a=false ;;
+            *) echo "ERROR: invalid {\$PATCH.CONF.AUTO_UPDATE} '$a' (true / false)"; return ;;
+        esac
+        keys+=(AUTO_UPDATE); lines+=("AUTO_UPDATE=\"$a\"")
+    fi
+    if [ -n "$e" ]; then
+        [ "${e,,}" = none ] && e=""
+        if ! [[ $e =~ ^[0-9A-Za-z\ ._+:,%-]*$ ]]; then echo "ERROR: invalid {\$PATCH.CONF.EXCLUDE} '$e'"; return; fi
+        e=${e//%/*}
+        keys+=(EXCLUDE); lines+=("EXCLUDE=\"$e\"")
+    fi
+    if [ -n "$r" ]; then
+        case "${r,,}" in
+            yes|true|1|on)  r=yes ;;
+            no|false|0|off) r=no ;;
+            *) echo "ERROR: invalid {\$PATCH.CONF.REBOOT} '$r' (yes / no)"; return ;;
+        esac
+        keys+=(REBOOT); lines+=("REBOOT=\"$r\"")
+    fi
+    content="# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {\$PATCH.CONF.*}
+# (item patch.config, zbx-patch-linux.sh --zabbix-config). Don't edit it: it is overwritten when a macro
+# changes. The keys here win over zbx-patch.conf; an empty macro leaves zbx-patch.conf in effect."
+    [ ${#lines[@]} -gt 0 ] && content+=$'\n'$(printf '%s\n' "${lines[@]}")
+    local summary
+    summary=$(IFS=,; echo "${keys[*]}"); summary=${summary//,/, }; summary=${summary:-no host macros set}
+    if [ -f "$PATCH_CONF_MACRO" ] && [ "$(cat "$PATCH_CONF_MACRO")" = "$content" ]; then
+        echo "OK, unchanged: $summary"; return
+    fi
+    if ! { [ -w "$PATCH_CONF_MACRO" ] || { [ ! -e "$PATCH_CONF_MACRO" ] && [ -w "$(dirname "$PATCH_CONF_MACRO")" ]; }; }; then
+        echo "ERROR: $PATCH_CONF_MACRO is not writable by $(id -un) - run zbx-patch-linux.sh --install-agent-config as root"; return
+    fi
+    printf '%s\n' "$content" > "$PATCH_CONF_MACRO" || { echo "ERROR: writing $PATCH_CONF_MACRO failed"; return; }
+    echo "OK, written: $summary"
+}
+if [ "$MODE" = zabbix ]; then zabbix_config "$ZBX_VALUES"; exit 0; fi
+
+# ---------------- --install-agent-config (root, run by the setup) ----------------
+# UserParameter patch.config in a file of the agent Include folder (the main config is changed only
+# when it has no Include for that folder), PATCH_CONF_MACRO writable by the agent (root:zabbix 0664),
+# restart of the agent when something changed; when the agent doesn't start, everything is undone.
+install_agent_config() {
+    [ "$(id -u)" -eq 0 ] || { echo "ERROR: --install-agent-config needs root" >&2; return 1; }
+    [ -n "$ZABBIX_CONF" ] || { echo "ERROR: Zabbix agent config not found - UserParameter not installed" >&2; return 1; }
+    local self agent svc incdir inc upfile line backup changed=0 grp
+    self=$(readlink -f "$0")
+    case "$(basename "$ZABBIX_CONF")" in *agent2*) agent=zabbix_agent2; svc=zabbix-agent2 ;; *) agent=zabbix_agentd; svc=zabbix-agent ;; esac
+    # Include folder: the first Include=<folder>/*.conf (not the agent 2 plugins), otherwise <config folder>/<agent>.d
+    incdir=""
+    while read -r inc; do
+        case "$inc" in
+            /*) ;;
+            *)             continue ;;   # relative to the working folder of the agent
+        esac
+        case "$inc" in
+            */plugins.d/*) continue ;;
+            */\*.conf)     incdir=${inc%/\*.conf}; break ;;
+            */)            incdir=${inc%/}; break ;;
+            *)             [ -d "$inc" ] && { incdir=$inc; break; } ;;
+        esac
+    done < <(sed -n -E 's/^[[:space:]]*Include[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p' "$ZABBIX_CONF")
+    backup=""
+    if [ -z "$incdir" ]; then
+        incdir="$(dirname "$ZABBIX_CONF")/$agent.d"
+        backup="$ZABBIX_CONF.zbx-patch.bak"
+        cp -p "$ZABBIX_CONF" "$backup"
+        printf '\n# Added by zbx-patch-linux.sh (UserParameter patch.config)\nInclude=%s/*.conf\n' "$incdir" >> "$ZABBIX_CONF"
+        echo "Include=$incdir/*.conf added to $ZABBIX_CONF"
+        changed=1
+    fi
+    mkdir -p "$incdir"
+    upfile="$incdir/zbx-patch-userparameter.conf"
+    line="UserParameter=patch.config[*],$self --zabbix-config \"\$1|\$2|\$3|\$4\""
+    if [ "$(cat "$upfile" 2>/dev/null)" != "# Settings from the Zabbix host macros {\$PATCH.CONF.*} - installed by zbx-patch-linux.sh
+$line" ]; then
+        [ -f "$upfile" ] && cp -p "$upfile" "$upfile.bak"
+        printf '# Settings from the Zabbix host macros {$PATCH.CONF.*} - installed by zbx-patch-linux.sh\n%s\n' "$line" > "$upfile"
+        chmod 644 "$upfile"
+        echo "UserParameter patch.config: $upfile"
+        changed=1
+    fi
+    # The macro file: the agent (user zabbix) writes it
+    grp=$(getent group zabbix >/dev/null && echo zabbix || echo root)
+    [ -f "$PATCH_CONF_MACRO" ] || printf '# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}\n' > "$PATCH_CONF_MACRO"
+    chown "root:$grp" "$PATCH_CONF_MACRO" && chmod 664 "$PATCH_CONF_MACRO"
+    echo "Settings from the host macros: $PATCH_CONF_MACRO (root:$grp 664)"
+    if [ "$changed" -eq 0 ]; then echo "Agent config unchanged"; return 0; fi
+    # Restart the agent; when it doesn't run afterwards, undo the changes
+    restart() { if command -v systemctl >/dev/null 2>&1; then systemctl restart "$svc"; sleep 3; systemctl is-active --quiet "$svc"
+                else service "$svc" restart && sleep 3 && pgrep -x "$agent" >/dev/null; fi; }
+    if restart; then echo "Agent restarted: $svc"; rm -f "$upfile.bak" "$backup"; return 0; fi
+    echo "ERROR: $svc doesn't run after the restart - the changes are undone" >&2
+    if [ -f "$upfile.bak" ]; then mv -f "$upfile.bak" "$upfile"; else rm -f "$upfile"; fi
+    [ -n "$backup" ] && mv -f "$backup" "$ZABBIX_CONF"
+    restart || echo "ERROR: $svc doesn't run even after undoing the changes - check it" >&2
+    return 1
+}
+if [ "$MODE" = agentconf ]; then install_agent_config; exit $?; fi
 
 if [ "$MODE" = show ]; then
     printf '{"config": %s, "config_found": %s, "maintenance_window": %s, "maintenance_active": %s, ' \
@@ -250,7 +391,8 @@ if [ "$MODE" = show ]; then
         "$(q "$MAINTENANCE_WINDOW")" "$(tf "$MAINT_ACTIVE")"
     printf '"maintenance_next": %s, "maintenance_error": %s, "exclude": [' "${MAINT_NEXT:-null}" "$(q "$MAINT_ERROR")"
     sep=""; for p in "${EXCL[@]}"; do printf '%s%s' "$sep" "$(q "$p")"; sep=", "; done
-    printf '], "reboot_allowed": %s, "auto_update": %s}\n' "$(tf "$REBOOT_ALLOWED")" "$(tf "$AUTO_UPDATE")"
+    printf '], "reboot_allowed": %s, "auto_update": %s, "macro_config": %s, "macro_keys": %s}\n' \
+        "$(tf "$REBOOT_ALLOWED")" "$(tf "$AUTO_UPDATE")" "$(q "$PATCH_CONF_MACRO")" "$(q "$MACRO_KEYS")"
     exit 0
 fi
 
@@ -622,6 +764,7 @@ case "$RESULT" in ERROR*) CHECK_OK=0 ;; esac
     echo "- patch.autoupdate $AUTOUPDATE"
     echo "- patch.autoupdate.detail $(q "$AUTODETAIL")"
     echo "- patch.autoupdate.config $AUTO_UPDATE"
+    echo "- patch.config.override $(q "${MACRO_KEYS:--}")"
     echo "- patch.reboot.allowed $REBOOT_ALLOWED"
     echo "- patch.maintenance.window $(q "${MAINTENANCE_WINDOW:--}${MAINT_ERROR:+ ($MAINT_ERROR)}")"
     [ -n "$MAINT_NEXT" ] && echo "- patch.maintenance.next $MAINT_NEXT"
@@ -657,5 +800,5 @@ send -k patch.history -o "$HISTORY"
 [ "$CHECK_OK" -eq 1 ] && send -k patch.updates.list -o "$LIST"
 
 echo "$OS_NAME: pending $ALL (security $SECURITY, critical ${CRITICAL:-n/a}, kernel $KERNEL, excluded $EXCLUDED), reboot required: $REBOOT, result: $RESULT"
-echo "Maintenance window: ${MAINTENANCE_WINDOW:--}${MAINT_NEXT:+ (next $(date -d "@$MAINT_NEXT" '+%Y-%m-%d %H:%M'))}, exclude: ${EXCLUDE:--}, reboot allowed: $REBOOT_ALLOWED"
+echo "Maintenance window: ${MAINTENANCE_WINDOW:--}${MAINT_NEXT:+ (next $(date -d "@$MAINT_NEXT" '+%Y-%m-%d %H:%M'))}, exclude: ${EXCLUDE:--}, reboot allowed: $REBOOT_ALLOWED, auto update: $AUTO_UPDATE${MACRO_KEYS:+, from host macros: $MACRO_KEYS}"
 exit 0

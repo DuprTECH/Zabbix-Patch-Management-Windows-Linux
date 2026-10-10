@@ -69,6 +69,20 @@
 .PARAMETER Force
     With -Update: install also outside the maintenance window.
 
+.PARAMETER ZabbixConfig
+    For the Zabbix agent (UserParameter patch.config): "<window>|<auto update>|<exclude>|<reboot>", the
+    values of the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE},
+    {$PATCH.CONF.REBOOT}. The set (non empty) ones are validated and written to
+    zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf (only when they changed); its keys win over
+    zbx-patch.conf, which is never changed from Zabbix. Prints OK / ERROR for the item.
+    The agent forbids * " ' $ ; | # and other characters in the values, so: window 1-7 = every day
+    (instead of *), "any" = any time; exclude % = wildcard, "none" = nothing excluded.
+
+.PARAMETER InstallAgentConfig
+    For the setup (administrator): UserParameter patch.config in a file of the agent Include folder
+    (the main config gets an Include only when it has none), the macro file, restart of the agent
+    service; when the service doesn't run afterwards, the changes are undone.
+
 .EXAMPLE
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File zbx-patch-windows.ps1
 
@@ -89,13 +103,15 @@ param(
     [switch]$ShowConfig,
     [switch]$Update,
     [switch]$AutoUpdate,
-    [switch]$Force
+    [switch]$Force,
+    [string]$ZabbixConfig,
+    [switch]$InstallAgentConfig
 )
 
 $start = Get-Date
 
-# Version of this script (item patch.script.version), YY.MM.DD - change it with every change of the script
-$ScriptVersion = '26.10.10'
+# Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
+$ScriptVersion = '26.10.10.2'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -160,18 +176,28 @@ if (-not $PatchConfig) {
     $PatchConfig = Join-Path $dir 'zbx-patch.conf'
 }
 
-# KEY="value" (also 'value' or value # comment); the last one wins
-$conf = @{}
-if (Test-Path $PatchConfig) {
-    foreach ($line in Get-Content $PatchConfig) {
+# Settings from the Zabbix host macros {$PATCH.CONF.*}, written by the agent (-ZabbixConfig);
+# a key set there wins over zbx-patch.conf
+$PatchConfigMacro = Join-Path (Split-Path $PatchConfig -Parent) 'zbx-patch-from-zbx-host-macro.cache'
+
+# KEY="value" (also 'value' or value # comment); the last one wins, the macro file last
+function Read-PatchConf([string]$Path) {
+    $c = [ordered]@{}
+    if (-not (Test-Path $Path)) { return $c }
+    foreach ($line in Get-Content $Path) {
         if ($line -notmatch '^\s*([A-Za-z_]+)\s*=\s*(.*)$') { continue }
         $key = $Matches[1].ToUpper(); $v = $Matches[2]
         if ($v -match '^"([^"]*)"') { $v = $Matches[1] }
         elseif ($v -match "^'([^']*)'") { $v = $Matches[1] }
         else { $v = $v -replace '#.*$', '' }
-        $conf[$key] = $v.Trim()
+        $c[$key] = $v.Trim()
     }
+    $c
 }
+$conf = Read-PatchConf $PatchConfig
+$confMacro = Read-PatchConf $PatchConfigMacro
+foreach ($k in $confMacro.Keys) { $conf[$k] = $confMacro[$k] }
+$macroKeys = (@($confMacro.Keys) | Sort-Object) -join ', '
 $maintWindow   = "$($conf['MAINTENANCE_WINDOW'])"
 $excludeText   = "$($conf['EXCLUDE'])"
 $exclude       = @($excludeText -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -234,6 +260,120 @@ function Get-Maintenance([string]$Spec) {
     }
     $r
 }
+
+# ---------------- Settings from the Zabbix host macros (-ZabbixConfig) ----------------
+# Run by the Zabbix agent (UserParameter patch.config). Invalid values: nothing is written, "ERROR: ..."
+function Set-MacroConfig([string]$Values) {
+    $f = @($Values -split '\|') + @('', '', '', '')
+    $w = $f[0].Trim(); $a = $f[1].Trim(); $e = $f[2].Trim(); $r = $f[3].Trim()
+    $keys = @(); $lines = @()
+    if ($w) {
+        if ($w -eq 'any') { $w = '' }
+        if ($w -notmatch '^[0-9A-Za-z .,:\-]*$') { return "ERROR: invalid {`$PATCH.CONF.WINDOW} '$w'" }
+        $err = (Get-Maintenance $w).error
+        if ($err) { return "ERROR: {`$PATCH.CONF.WINDOW}: $err" }
+        $keys += 'MAINTENANCE_WINDOW'; $lines += "MAINTENANCE_WINDOW=`"$w`""
+    }
+    if ($a) {
+        if ($a -match '^(yes|true|1|on)$') { $a = 'true' }
+        elseif ($a -match '^(no|false|0|off)$') { $a = 'false' }
+        else { return "ERROR: invalid {`$PATCH.CONF.AUTO_UPDATE} '$a' (true / false)" }
+        $keys += 'AUTO_UPDATE'; $lines += "AUTO_UPDATE=`"$a`""
+    }
+    if ($e) {
+        if ($e -eq 'none') { $e = '' }
+        if ($e -notmatch '^[0-9A-Za-z ._+:,%\-]*$') { return "ERROR: invalid {`$PATCH.CONF.EXCLUDE} '$e'" }
+        $e = $e -replace '%', '*'
+        $keys += 'EXCLUDE'; $lines += "EXCLUDE=`"$e`""
+    }
+    if ($r) {
+        if ($r -match '^(yes|true|1|on)$') { $r = 'yes' }
+        elseif ($r -match '^(no|false|0|off)$') { $r = 'no' }
+        else { return "ERROR: invalid {`$PATCH.CONF.REBOOT} '$r' (yes / no)" }
+        $keys += 'REBOOT'; $lines += "REBOOT=`"$r`""
+    }
+    $content = @(
+        '# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}'
+        '# (item patch.config, zbx-patch-windows.ps1 -ZabbixConfig). Don''t edit it: it is overwritten when a macro'
+        '# changes. The keys here win over zbx-patch.conf; an empty macro leaves zbx-patch.conf in effect.'
+    ) + $lines
+    $summary = if ($keys.Count) { $keys -join ', ' } else { 'no host macros set' }
+    if ((Test-Path $PatchConfigMacro) -and ((@(Get-Content $PatchConfigMacro) -join "`n") -eq ($content -join "`n"))) {
+        return "OK, unchanged: $summary"
+    }
+    try { Set-Content -Path $PatchConfigMacro -Value $content -Encoding ASCII -ErrorAction Stop }
+    catch { return "ERROR: writing $PatchConfigMacro failed: $($_.Exception.Message)" }
+    "OK, written: $summary"
+}
+if ($PSBoundParameters.ContainsKey('ZabbixConfig')) { Set-MacroConfig $ZabbixConfig; exit 0 }
+
+# ---------------- -InstallAgentConfig (administrator, run by the setup) ----------------
+function Install-AgentConfig {
+    if (-not (Test-Path $ConfigPath)) { Write-Warning "Zabbix agent config not found: $ConfigPath - UserParameter not installed"; return 1 }
+    $confDir = Split-Path $ConfigPath -Parent
+    $agent2  = (Split-Path $ConfigPath -Leaf) -like '*agent2*'
+    # Service of this agent: its command line has the config, otherwise by name
+    $svc = Get-CimInstance Win32_Service -Filter "Name LIKE 'Zabbix Agent%'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.PathName -like "*$ConfigPath*" } | Select-Object -First 1
+    if (-not $svc) {
+        $name = if ($agent2) { 'Zabbix Agent 2' } else { 'Zabbix Agent' }
+        $svc = Get-CimInstance Win32_Service -Filter "Name = '$name'" -ErrorAction SilentlyContinue
+    }
+    if (-not $svc) { Write-Warning 'Zabbix agent service not found - UserParameter not installed'; return 1 }
+    # Include folder: the first absolute Include=<folder>\*.conf (not the agent 2 plugins), otherwise <config folder>\<agent>.d
+    $incDir = $null
+    foreach ($m in (Select-String -Path $ConfigPath -Pattern '^\s*Include\s*=\s*(.+?)\s*$')) {
+        $inc = $m.Matches[0].Groups[1].Value
+        if ($inc -notmatch '^[A-Za-z]:\\' -or $inc -like '*\plugins.d\*') { continue }
+        if ($inc -like '*\`*.conf') { $incDir = Split-Path $inc -Parent; break }
+        if (Test-Path $inc -PathType Container) { $incDir = $inc.TrimEnd('\'); break }
+    }
+    $changed = $false; $backup = $null
+    if (-not $incDir) {
+        $incDir = Join-Path $confDir $(if ($agent2) { 'zabbix_agent2.d' } else { 'zabbix_agentd.d' })
+        $backup = "$ConfigPath.zbx-patch.bak"
+        Copy-Item $ConfigPath $backup -Force
+        Add-Content -Path $ConfigPath -Encoding ASCII -Value @('', '# Added by zbx-patch-windows.ps1 (UserParameter patch.config)', "Include=$incDir\*.conf")
+        Write-Host "Include=$incDir\*.conf added to $ConfigPath"
+        $changed = $true
+    }
+    New-Item -ItemType Directory -Force $incDir | Out-Null
+    $upFile = Join-Path $incDir 'zbx-patch-userparameter.conf'
+    $content = @(
+        '# Settings from the Zabbix host macros {$PATCH.CONF.*} - installed by zbx-patch-windows.ps1'
+        "UserParameter=patch.config[*],powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -ConfigPath `"$ConfigPath`" -ZabbixConfig `"`$1|`$2|`$3|`$4`""
+    )
+    $upBackup = $null
+    if (-not ((Test-Path $upFile) -and ((@(Get-Content $upFile) -join "`n") -eq ($content -join "`n")))) {
+        if (Test-Path $upFile) { $upBackup = "$upFile.bak"; Copy-Item $upFile $upBackup -Force }
+        Set-Content -Path $upFile -Value $content -Encoding ASCII
+        Write-Host "UserParameter patch.config: $upFile"
+        $changed = $true
+    }
+    if (-not (Test-Path $PatchConfigMacro)) {
+        Set-Content -Path $PatchConfigMacro -Encoding ASCII -Value '# zbx-patch-from-zbx-host-macro.cache - written by the Zabbix agent from the host macros {$PATCH.CONF.*}'
+    }
+    Write-Host "Settings from the host macros: $PatchConfigMacro"
+    if (-not $changed) { Write-Host 'Agent config unchanged'; return 0 }
+    # Restart the agent; when it doesn't run afterwards, undo the changes
+    function Restart-Agent {
+        try { Restart-Service -Name $svc.Name -Force -ErrorAction Stop } catch {}
+        Start-Sleep -Seconds 3
+        (Get-Service -Name $svc.Name).Status -eq 'Running'
+    }
+    if (Restart-Agent) {
+        Write-Host "Agent restarted: $($svc.Name)"
+        foreach ($b in $upBackup, $backup) { if ($b) { Remove-Item $b -Force -ErrorAction SilentlyContinue } }
+        return 0
+    }
+    Write-Warning "$($svc.Name) doesn't run after the restart - the changes are undone"
+    if ($upBackup) { Move-Item $upBackup $upFile -Force } else { Remove-Item $upFile -Force -ErrorAction SilentlyContinue }
+    if ($backup) { Move-Item $backup $ConfigPath -Force }
+    if (-not (Restart-Agent)) { Write-Warning "$($svc.Name) doesn't run even after undoing the changes - check it" }
+    return 1
+}
+if ($InstallAgentConfig) { exit (Install-AgentConfig | Select-Object -Last 1) }
+
 $maint = Get-Maintenance $maintWindow
 
 if ($ShowConfig) {
@@ -247,6 +387,8 @@ if ($ShowConfig) {
         exclude            = $exclude
         reboot_allowed     = [bool]$rebootAllowed
         auto_update        = [bool]$autoInstall
+        macro_config       = $PatchConfigMacro
+        macro_keys         = $macroKeys
     } | ConvertTo-Json -Compress
     exit 0
 }
@@ -531,6 +673,7 @@ $lines = @(
     "- patch.autoupdate.detail $(Q $autoDetail)",
     # AUTO_UPDATE in zbx-patch.conf: 1 = this script installs the updates in the maintenance window (-AutoUpdate task)
     "- patch.autoupdate.config $autoInstall",
+    "- patch.config.override $(Q $(if ($macroKeys) { $macroKeys } else { '-' }))",
     "- patch.reboot.allowed $rebootAllowed",
     "- patch.maintenance.window $(Q ($(if ($maintWindow) { $maintWindow } else { '-' }) + $(if ($maint.error) { " ($($maint.error))" })))",
     "- patch.exclude $(Q $(if ($excludeText.Trim()) { $excludeText.Trim() } else { '-' }))"
@@ -564,6 +707,6 @@ if ($searchOk) {
 
 Write-Output "Pending updates: $($counts.all) (critical $($counts.critical), security $($counts.security), excluded $excluded), reboot required: $rebootRequired, result: $result"
 $nextText = if ($maint.next) { " (next {0:yyyy-MM-dd HH:mm})" -f $maint.next } else { "" }
-Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed, auto update: $autoInstall"
+Write-Output "Maintenance window: $(if ($maintWindow) { $maintWindow } else { '-' })$nextText, exclude: $(if ($excludeText) { $excludeText } else { '-' }), reboot allowed: $rebootAllowed, auto update: $autoInstall$(if ($macroKeys) { ", from host macros: $macroKeys" })"
 if ($logFile) { Stop-Transcript | Out-Null }
 exit 0

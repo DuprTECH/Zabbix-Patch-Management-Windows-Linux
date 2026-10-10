@@ -137,7 +137,12 @@ EOF
 chmod 644 "$CONF"
 echo "Patch settings $CONF: window '$MAINTENANCE_WINDOW', auto update $AUTO_UPDATE, exclude '$EXCLUDE', reboot $REBOOT"
 
-# 5. Run the check now
+# 5. Settings from Zabbix: UserParameter patch.config (host macros {$PATCH.CONF.*} ->
+#    zbx-patch-from-zbx-host-macro.cache, wins over zbx-patch.conf); the agent is restarted only
+#    when its config changed (undone when it doesn't start)
+"$DEST" --install-agent-config || echo "WARNING: UserParameter not installed - the host macros {\$PATCH.CONF.*} don't apply on this host" >&2
+
+# 6. Run the check now
 if [ "$RUN_NOW" = "1" ]; then
     echo "Running the check ..."
     env $ENVS "$DEST"

@@ -121,6 +121,22 @@
       register: zbx_task
       changed_when: zbx_task.stdout | trim == 'changed'
 
+    # Settings from Zabbix: the item patch.config delivers the host macros {$PATCH.CONF.*} to the agent,
+    # which writes them to zbx-patch-from-zbx-host-macro.cache (wins over zbx-patch.conf). The UserParameter
+    # goes into the agent Include folder, the agent is restarted only when it changed (undone when it
+    # doesn't start).
+    - name: Zabbix agent - UserParameter patch.config (settings from the host macros)
+      ansible.windows.win_shell: >-
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{{ zbx_win.script }}"
+        -ConfigPath "{{ zbx_win.conf }}" -InstallAgentConfig
+      register: zbx_agent_conf
+      changed_when: "'Agent restarted' in zbx_agent_conf.stdout"
+      failed_when: false
+
+    - name: Zabbix agent - UserParameter result
+      ansible.builtin.debug:
+        msg: "{{ zbx_agent_conf.stdout_lines + zbx_agent_conf.stderr_lines }}"
+
     - name: Run the check script (the update search can take a few minutes)
       ansible.windows.win_shell: >-
         powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{{ zbx_win.script }}"

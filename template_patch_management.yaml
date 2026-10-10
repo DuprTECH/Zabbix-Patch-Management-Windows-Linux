@@ -858,6 +858,54 @@ zabbix_export:
           tags:
             - tag: component
               value: maintenance
+        - uuid: 755bc789857b41b2a6389621490d3410
+          name: 'Patch - Settings from host macros (agent)'
+          type: ZABBIX_ACTIVE
+          key: 'patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"]'
+          delay: 10m
+          history: 30d
+          value_type: CHAR
+          trends: '0'
+          timeout: 20s
+          description: |
+            Delivers the host macros {$PATCH.CONF.WINDOW}, {$PATCH.CONF.AUTO_UPDATE}, {$PATCH.CONF.EXCLUDE}, {$PATCH.CONF.REBOOT}
+            to the host: the agent (UserParameter patch.config, installed by the setup / --install-agent-config) validates them
+            and writes the set ones to zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf. Those keys win over
+            zbx-patch.conf, which is never changed from Zabbix. Empty macro = zbx-patch.conf stays in effect.
+            Value: OK, written / unchanged: <keys>, or ERROR: <reason> (then nothing is written).
+            The agent forbids * " ' $ ; | # and other characters in the values: window 1-7 = every day (instead of *),
+            any = any time; exclude % = wildcard, none = nothing excluded.
+            Not supported = the UserParameter is not installed on the host (run the setup again).
+          tags:
+            - tag: component
+              value: maintenance
+          triggers:
+            - uuid: 219feb389a8c46f6a4bb7eb492b678b1
+              expression: 'find(/APP Patch management all OS/patch.config["{$PATCH.CONF.WINDOW}","{$PATCH.CONF.AUTO_UPDATE}","{$PATCH.CONF.EXCLUDE}","{$PATCH.CONF.REBOOT}"],,"like","ERROR")=1'
+              name: 'Patch settings in the host macros are invalid'
+              opdata: '{ITEM.LASTVALUE}'
+              priority: WARNING
+              description: 'A macro {$PATCH.CONF.*} of the host has an invalid value, the settings from the macros were not changed. See the last value of the item "Patch - Settings from host macros (agent)".'
+              tags:
+                - tag: service
+                  value: patch-management
+                - tag: scope
+                  value: notice
+        - uuid: e02807b5cd9a45269faa3291f81ee139
+          name: 'Patch - Settings from host macros'
+          type: TRAP
+          key: patch.config.override
+          history: 90d
+          value_type: CHAR
+          trends: '0'
+          description: 'Keys of the patch settings that come from the host macros {$PATCH.CONF.*} (zbx-patch-from-zbx-host-macro.cache) and override zbx-patch.conf, for example "AUTO_UPDATE, MAINTENANCE_WINDOW"; - = none, zbx-patch.conf only.'
+          preprocessing:
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 6h
+          tags:
+            - tag: component
+              value: maintenance
         - uuid: 9157fc5c931649d2814242ba4a8cd953
           name: 'Patch - Excluded updates (config)'
           type: TRAP
@@ -2310,6 +2358,18 @@ zabbix_export:
         - macro: '{$PATCH.CHECK.CMD}'
           value: /usr/local/bin/zbx-patch-linux.sh
           description: 'Command of the item "Patch - Run update check". Override on Windows hosts (see the item description).'
+        - macro: '{$PATCH.CONF.AUTO_UPDATE}'
+          value: ''
+          description: 'Host setting from Zabbix (overrides AUTO_UPDATE of zbx-patch.conf): true = the check script installs the updates in the maintenance window, false = check only. Empty = zbx-patch.conf.'
+        - macro: '{$PATCH.CONF.EXCLUDE}'
+          value: ''
+          description: 'Host setting from Zabbix (overrides EXCLUDE of zbx-patch.conf): updates that are not installed, comma separated (Linux: packages, Windows: KB or a part of the title), % = wildcard (kernel%), none = nothing excluded. Empty = zbx-patch.conf.'
+        - macro: '{$PATCH.CONF.REBOOT}'
+          value: ''
+          description: 'Host setting from Zabbix (overrides REBOOT of zbx-patch.conf): yes = reboot after updates when needed, no = only report it. Empty = zbx-patch.conf.'
+        - macro: '{$PATCH.CONF.WINDOW}'
+          value: ''
+          description: 'Host setting from Zabbix (overrides MAINTENANCE_WINDOW of zbx-patch.conf): <day> <HH:MM>-<HH:MM>, comma separated; day 1-7 = Mon-Sun (1-7 = every day, * is not allowed by the agent), 1-5, 2.3 = 2nd Wednesday; any = any time. Empty = zbx-patch.conf.'
         - macro: '{$PATCH.LASTUPDATE.MAXAGE}'
           value: 45d
           description: 'Alert when no updates were installed for this time and updates are pending (trigger disabled by default)'

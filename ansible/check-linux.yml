@@ -128,6 +128,20 @@
         minute: "*/15"
         job: "{{ zabbix_check_script }} --auto-update >>/var/log/zbx-patch-update.log 2>&1"
 
+    # Settings from Zabbix: the item patch.config delivers the host macros {$PATCH.CONF.*} to the agent,
+    # which writes them to zbx-patch-from-zbx-host-macro.cache (wins over zbx-patch.conf). The UserParameter
+    # goes into the agent Include folder, the agent is restarted only when it changed (undone when it
+    # doesn't start); without an agent only a warning.
+    - name: Zabbix agent - UserParameter patch.config (settings from the host macros)
+      ansible.builtin.command: "{{ zabbix_check_script }} --install-agent-config"
+      register: zbx_agent_conf
+      changed_when: "'Agent restarted' in zbx_agent_conf.stdout"
+      failed_when: false
+
+    - name: Zabbix agent - UserParameter result
+      ansible.builtin.debug:
+        msg: "{{ zbx_agent_conf.stdout_lines + zbx_agent_conf.stderr_lines }}"
+
     - name: Run the check script
       ansible.builtin.command: "{{ zabbix_check_script }}"
       register: zbx_check_run
