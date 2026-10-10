@@ -94,8 +94,8 @@ param(
 
 $start = Get-Date
 
-# Version of this script (item patch.script.version) - change it with every change of the script
-$ScriptVersion = '2026.10.10'
+# Version of this script (item patch.script.version), YY.MM.DD - change it with every change of the script
+$ScriptVersion = '26.10.10'
 
 # Update classification IDs (language independent)
 $Classifications = @{

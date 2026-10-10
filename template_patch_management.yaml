@@ -169,7 +169,7 @@ zabbix_export:
           history: 90d
           value_type: CHAR
           trends: '0'
-          description: 'Version of the check script on the host (zbx-patch-linux.sh / zbx-patch-windows.ps1), for example 2026.10.10. Shows the hosts with an old script.'
+          description: 'Version of the check script on the host (zbx-patch-linux.sh / zbx-patch-windows.ps1), for example 26.10.10. Shows the hosts with an old script.'
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:

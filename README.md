@@ -84,7 +84,7 @@ Values that exist on only one OS are kept too: on the other OS they are sent as 
 | Last reboot time / time since | `patch.lastboot`, `patch.lastboot.age` | ✔ | ✔ |
 | Last update installed / age / patch day | `patch.lastupdate.timestamp`, `.age`, `.patchday` | detected on the host | detected on the host |
 | OS family / name / version | `patch.os`, `patch.os.name`, `patch.os.version` | build with UBR | distribution, running kernel |
-| Check script version | `patch.script.version` | `$ScriptVersion` in the script, for example `2026.10.10` | `SCRIPT_VERSION` in the script |
+| Check script version | `patch.script.version` | `$ScriptVersion` in the script, for example `26.10.10` | `SCRIPT_VERSION` in the script |
 | Update source / availability | `patch.source`, `patch.source.available` | Windows Update or `WSUS <server>`, search succeeded | package manager, repositories reachable |
 | Automatic updates: 0 disabled, 1 OS security only, 2 OS all updates, 3 patch management (`AUTO_UPDATE`), 4 OS + patch management | `patch.autoupdate` | policy `AUOptions 4` or no policy on a client (2); notify / download only, `NoAutoUpdate`, no policy on Windows Server (0); `AUTO_UPDATE` (3) | unattended-upgrades, dnf-automatic, yum-cron (1 / 2), `AUTO_UPDATE` (3) |
 | Automatic updates detail | `patch.autoupdate.detail` | for example `Windows Update: download only, notify to install (AUOptions 3); WSUS http://wsus:8530 (approved updates only)` | for example `unattended-upgrades: security updates only` |

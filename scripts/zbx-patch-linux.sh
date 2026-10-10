@@ -56,8 +56,8 @@
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
-# Version of this script (item patch.script.version) - change it with every change of the script
-SCRIPT_VERSION="2026.10.10"
+# Version of this script (item patch.script.version), YY.MM.DD - change it with every change of the script
+SCRIPT_VERSION="26.10.10"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
