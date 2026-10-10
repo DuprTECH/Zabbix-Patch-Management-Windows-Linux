@@ -111,7 +111,7 @@ param(
 $start = Get-Date
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-$ScriptVersion = '26.10.11'
+$ScriptVersion = '26.10.11.2'
 
 # Update classification IDs (language independent)
 $Classifications = @{
@@ -207,9 +207,9 @@ $rebootAllowed = if ("$($conf['REBOOT'])" -match '^(no|false|0|off)$') { 0 } els
 $autoInstall   = if ("$($conf['AUTO_UPDATE'])" -match '^(yes|true|1|on)$') { 1 } else { 0 }
 
 # Settings in effect with their source (item patch.config.override, column Config of the dashboards):
-# [zabbix] = host macro, [file] = zbx-patch.conf, [default] = set nowhere, the default applies
+# [S] = Zabbix host macro, [C] = zbx-patch.conf, [D] = set nowhere, the default applies
 function Get-ConfSource([string]$Key) {
-    if ($confMacro.Contains($Key)) { 'zabbix' } elseif ($confFile.Contains($Key)) { 'file' } else { 'default' }
+    if ($confMacro.Contains($Key)) { 'S' } elseif ($confFile.Contains($Key)) { 'C' } else { 'D' }
 }
 $configSummary = '[{0}] window: {1}, [{2}] auto update: {3}, [{4}] reboot: {5}, [{6}] exclude: {7}' -f `
     (Get-ConfSource 'MAINTENANCE_WINDOW'), $(if ($maintWindow) { $maintWindow } else { 'any time' }),

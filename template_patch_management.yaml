@@ -900,9 +900,9 @@ zabbix_export:
           trends: '0'
           description: |
             The patch settings in effect on the host, each with its source, for example:
-            [zabbix] window: 1-5 03:00-05:00, [file] auto update: false, [file] reboot: yes, [default] exclude: -
-            [zabbix] = host macro {$PATCH.CONF.*} in Zabbix (zbx-patch-from-zbx-host-macro.cache, wins),
-            [file] = zbx-patch.conf on the host, [default] = set nowhere, the default applies.
+            [S] window: 1-5 03:00-05:00, [C] auto update: false, [C] reboot: yes, [D] exclude: -
+            [S] = Zabbix host macro {$PATCH.CONF.*} (server; zbx-patch-from-zbx-host-macro.cache, wins),
+            [C] = zbx-patch.conf on the host (config from the setup), [D] = set nowhere, the default applies.
           preprocessing:
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
@@ -1577,7 +1577,7 @@ zabbix_export:
                       name: thresholds.0.threshold
                       value: '1'
                 - type: item
-                  name: 'Config'
+                  name: 'Config - [S] Zabbix macro, [C] zbx-patch.conf, [D] default'
                   'y': '28'
                   width: '48'
                   height: '3'

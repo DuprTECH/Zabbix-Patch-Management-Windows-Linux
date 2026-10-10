@@ -44,8 +44,8 @@
 # --install-agent-config) writes the set ones to zbx-patch-from-zbx-host-macro.cache next to zbx-patch.conf
 # (PATCH_CONF_MACRO). Its keys win over zbx-patch.conf, which is never changed from Zabbix.
 # patch.config.override: the settings in effect with their source, for example
-#   [zabbix] window: 1-5 03:00-05:00, [file] auto update: false, [file] reboot: yes, [default] exclude: -
-#   ([zabbix] = host macro, [file] = zbx-patch.conf, [default] = set nowhere, the default applies)
+#   [S] window: 1-5 03:00-05:00, [C] auto update: false, [C] reboot: yes, [D] exclude: -
+#   ([S] = Zabbix host macro, [C] = zbx-patch.conf, [D] = set nowhere, the default applies)
 #
 # Options:
 #   --show-config   print the patch settings as JSON (window active now, next window,
@@ -74,7 +74,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin${PATH:+:$PATH}
 export PATH
 
 # Version of this script (item patch.script.version), YY.MM.DD[.n] (.n = another change the same day) - change it with every change of the script
-SCRIPT_VERSION="26.10.11"
+SCRIPT_VERSION="26.10.11.2"
 
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
@@ -174,13 +174,13 @@ case "$(trim "$(conf_get AUTO_UPDATE)" | tr '[:upper:]' '[:lower:]')" in yes|tru
 # Keys set by the host macros
 MACRO_KEYS=$( [ -r "$PATCH_CONF_MACRO" ] && sed -n -E 's/^[[:space:]]*([A-Z_]+)[[:space:]]*=.*/\1/p' "$PATCH_CONF_MACRO" \
     | sort -u | paste -sd, - | sed 's/,/, /g')
-# Source of a setting: zabbix (host macro), file (zbx-patch.conf) or default (set nowhere)
+# Source of a setting: S (Zabbix host macro), C (zbx-patch.conf) or D (default - set nowhere)
 conf_src() {
     local f
-    for f in "$PATCH_CONF_MACRO:zabbix" "$PATCH_CONF:file"; do
+    for f in "$PATCH_CONF_MACRO:S" "$PATCH_CONF:C"; do
         [ -r "${f%:*}" ] && grep -qE "^[[:space:]]*$1[[:space:]]*=" "${f%:*}" && { echo "${f##*:}"; return; }
     done
-    echo default
+    echo D
 }
 # Settings in effect with their source (item patch.config.override, column Config of the dashboards)
 CONFIG_SUMMARY="[$(conf_src MAINTENANCE_WINDOW)] window: ${MAINTENANCE_WINDOW:-any time}"
