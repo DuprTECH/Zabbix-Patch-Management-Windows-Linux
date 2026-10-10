@@ -17,8 +17,11 @@
 # Settings (environment variables):
 #   ZABBIX_SENDER   path to zabbix_sender          (default: zabbix_sender)
 #   ZABBIX_CONF     agent config with Hostname / ServerActive
-#                   (default: /etc/zabbix/zabbix_agent2.conf or zabbix_agentd.conf)
+#                   (default: zabbix_agent2.conf / zabbix_agentd.conf in /etc/zabbix, /etc,
+#                   /usr/local/etc, /opt/zabbix/etc, or the config of the running agent;
+#                   without an agent but with zabbix_proxy.conf the data go to its Server)
 #   ZABBIX_SERVER   optional Zabbix server / proxy (instead of ServerActive)
+#   ZABBIX_PORT     optional port of ZABBIX_SERVER (default: 10051)
 #   ZABBIX_HOST     optional host name in Zabbix   (instead of Hostname; default uname -n
 #                   when the config has no Hostname, for example HostnameItem=system.hostname)
 #   HISTORY_LINES   number of lines in the update history item (default: 50)
@@ -62,8 +65,35 @@ SCRIPT_VERSION="26.10.10"
 ZABBIX_SENDER="${ZABBIX_SENDER:-zabbix_sender}"
 HISTORY_LINES="${HISTORY_LINES:-50}"
 if [ -z "$ZABBIX_CONF" ]; then
-    for c in /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agentd.conf; do
+    for c in /etc/zabbix/zabbix_agent2.conf /etc/zabbix/zabbix_agentd.conf /etc/zabbix/zabbix_agent.conf \
+             /etc/zabbix_agent2.conf /etc/zabbix_agentd.conf \
+             /usr/local/etc/zabbix_agent2.conf /usr/local/etc/zabbix_agentd.conf \
+             /opt/zabbix/etc/zabbix_agent2.conf /opt/zabbix/etc/zabbix_agentd.conf; do
         [ -f "$c" ] && ZABBIX_CONF="$c" && break
+    done
+fi
+# Otherwise the config of the running agent (-c <file> on its command line)
+if [ -z "$ZABBIX_CONF" ]; then
+    c=$(ps -eo args= 2>/dev/null | sed -n -E 's/^[^ ]*zabbix_agent(2|d)[^ ]* .*(-c|--config)[ =]+([^ ]+).*/\3/p' | head -n 1)
+    [ -n "$c" ] && [ -f "$c" ] && ZABBIX_CONF="$c"
+fi
+# No agent, but a Zabbix proxy on this host: send to the Zabbix server of the proxy config
+# (Server=, the first one; host:port or [IPv6]:port), host name = Hostname of the proxy config,
+# otherwise uname -n. A host monitored by the proxy itself: set ZABBIX_SERVER=127.0.0.1.
+if [ -z "$ZABBIX_CONF" ] && [ -z "$ZABBIX_SERVER" ]; then
+    for c in /etc/zabbix/zabbix_proxy.conf /etc/zabbix_proxy.conf /usr/local/etc/zabbix_proxy.conf; do
+        [ -f "$c" ] || continue
+        s=$(sed -n -E 's/^[[:space:]]*Server[[:space:]]*=[[:space:]]*([^,;[:space:]#]+).*/\1/p' "$c" | tail -n 1)
+        [ -n "$s" ] || continue
+        case "$s" in
+            \[*\]:*) ZABBIX_SERVER=${s%]:*}; ZABBIX_SERVER=${ZABBIX_SERVER#[}; ZABBIX_PORT=${s##*]:} ;;
+            *:*:*)   ZABBIX_SERVER=$s ;;
+            *:*)     ZABBIX_SERVER=${s%:*}; ZABBIX_PORT=${s##*:} ;;
+            *)       ZABBIX_SERVER=$s ;;
+        esac
+        [ -z "$ZABBIX_HOST" ] && ZABBIX_HOST=$(sed -n -E 's/^[[:space:]]*Hostname[[:space:]]*=[[:space:]]*([^[:space:]#]+).*/\1/p' "$c" | tail -n 1)
+        [ -z "$ZABBIX_HOST" ] && ZABBIX_HOST=$(uname -n)
+        break
     done
 fi
 
@@ -84,6 +114,7 @@ send() {
     local args=()
     [ -n "$ZABBIX_CONF" ]   && args+=(-c "$ZABBIX_CONF")
     [ -n "$ZABBIX_SERVER" ] && args+=(-z "$ZABBIX_SERVER")
+    [ -n "$ZABBIX_PORT" ]   && args+=(-p "$ZABBIX_PORT")
     [ -n "$ZABBIX_HOST" ]   && args+=(-s "$ZABBIX_HOST")
     "$ZABBIX_SENDER" "${args[@]}" "$@"
 }
@@ -233,6 +264,13 @@ if [ "$MODE" = auto ]; then
     MODE=update; FORCE=1
 fi
 [ -n "$MAINT_ERROR" ] && echo "WARNING: $PATCH_CONF: $MAINT_ERROR" >&2
+
+# zabbix_sender needs the agent config (-c) or the server (-z) - without them nothing can be sent
+if [ -z "$ZABBIX_CONF" ] && [ -z "$ZABBIX_SERVER" ]; then
+    echo "ERROR: Zabbix agent / proxy config not found (zabbix_agent2.conf, zabbix_agentd.conf, zabbix_proxy.conf) - set ZABBIX_CONF=<path>" \
+         "or ZABBIX_SERVER=<server or proxy> (and ZABBIX_HOST=<host name in Zabbix>), for example in the cron line" >&2
+    exit 1
+fi
 
 # One run at a time (check, update and cron can overlap; apt / dnf need the lock too)
 { exec 9>/run/zbx-patch-linux.lock; } 2>/dev/null && command -v flock >/dev/null 2>&1 && flock -w 1800 9
